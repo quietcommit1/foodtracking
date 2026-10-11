@@ -17,7 +17,12 @@ export default function History({ onDate }: { onDate: (date: string) => void }) 
         </div>
         <div className="chips">
           {[7, 30].map((n) => (
-            <button key={n} className={period === n ? 'selected' : ''} onClick={() => setPeriod(n)}>
+            <button
+              key={n}
+              aria-pressed={period === n}
+              className={period === n ? 'selected' : ''}
+              onClick={() => setPeriod(n)}
+            >
               {n} days
             </button>
           ))}
@@ -28,7 +33,7 @@ export default function History({ onDate }: { onDate: (date: string) => void }) 
           <article className="surface" key={k}>
             <span className="muted">Average {k === 'carbs' ? 'carbohydrates' : k}</span>
             <h2>
-              {fmt(summary.average[k])}
+              {summary.logged === 0 ? '—' : fmt(summary.average[k])}
               <small> {k === 'calories' ? 'kcal' : 'g'}/day</small>
             </h2>
           </article>
@@ -41,13 +46,23 @@ export default function History({ onDate }: { onDate: (date: string) => void }) 
       </p>
       <section className="surface">
         <h2>Daily intake</h2>
+        <p className="small muted">
+          Tap a date to open its diary. Swipe or scroll horizontally for more dates.
+        </p>
         <div
-          className="history-chart"
-          role="img"
-          aria-label={`Calorie intake for the last ${period} days; empty days are unlogged.`}
+          className="history-chart-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Daily calorie chart; scroll for more dates"
         >
-          {Array.from({ length: period }, (_, i) => offsetDate(localDate(), -(period - 1 - i))).map(
-            (date) => {
+          <div
+            className="history-chart"
+            role="group"
+            aria-label={`Calorie intake for the last ${period} days; empty days are unlogged.`}
+          >
+            {Array.from({ length: period }, (_, i) =>
+              offsetDate(localDate(), -(period - 1 - i)),
+            ).map((date) => {
               const entries = data.diary_entries.filter((e) => e.date === date);
               const v = knownTotal(
                 entries.map((e) => e.nutrition),
@@ -83,8 +98,8 @@ export default function History({ onDate }: { onDate: (date: string) => void }) 
                   </small>
                 </button>
               );
-            },
-          )}
+            })}
+          </div>
         </div>
       </section>
       <section className="surface history-list">

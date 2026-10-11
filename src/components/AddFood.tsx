@@ -4,7 +4,7 @@ import Modal from './Modal';
 import StarterLibrary from './StarterLibrary';
 import { catalogDraft, matchesFood } from '../catalog';
 import { base, op, useStore } from '../store';
-import { fmt, makeSnapshot, scale, unknown } from '../nutrition';
+import { fmt, makeSnapshot, scale, total, unknown } from '../nutrition';
 import { meals, type Food, type Meal, type Entry } from '../types';
 export default function AddFood({
   date,
@@ -16,7 +16,7 @@ export default function AddFood({
 }: {
   date: string;
   onClose: () => void;
-  onCreate: () => void;
+  onCreate: (context: { date: string; meal: Meal }) => void;
   initialFood?: Food;
   initialMeal?: Meal;
   entry?: Entry;
@@ -44,9 +44,19 @@ export default function AddFood({
     entry?.nutrition.calories === null ? '' : String(entry?.nutrition.calories ?? ''),
   );
   const [saved, setSaved] = useState('');
+  const [limit, setLimit] = useState(20);
+  const [mealFactor, setMealFactor] = useState('1');
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
   const quantityInput = useRef<HTMLInputElement>(null);
+  const original = useRef(JSON.stringify({ quantity, unit, meal, day, name, calories }));
+  const factorPreview =
+    Number.isFinite(Number(mealFactor)) && Number(mealFactor) > 0 ? Number(mealFactor) : 0;
+  const savedPreview = total(
+    data.saved_meal_items
+      .filter((item) => item.saved_meal_id === saved)
+      .map((item) => scale(item.nutrition, factorPreview)),
+  );
   useEffect(() => {
     if (selected) {
       quantityInput.current?.closest('dialog')?.scrollTo({ top: 0, behavior: 'auto' });
@@ -56,6 +66,8 @@ export default function AddFood({
   let preview;
   try {
     if (selected) preview = makeSnapshot(selected, Number(quantity), unit).nutrition;
+    else if (entry && !quick && Number(quantity) > 0)
+      preview = scale(entry.nutrition, Number(quantity) / entry.quantity);
   } catch {
     /* validation stays in the form */
   }
@@ -65,13 +77,17 @@ export default function AddFood({
     .sort((a, b) => (b.updated_at ?? b.date).localeCompare(a.updated_at ?? a.date))
     .map((e) => e.food_id);
   let foods = data.foods.filter((f) => matchesFood(f, search));
-  if (!search && tab === 'favourites') foods = foods.filter((f) => favouriteIds.includes(f.id));
-  if (!search && tab === 'recent')
+  if (tab === 'favourites') foods = foods.filter((f) => favouriteIds.includes(f.id));
+  if (tab === 'recent') {
+    foods = foods.filter((f) => recentIds.includes(f.id));
     foods.sort((a, b) => {
       const ai = recentIds.indexOf(a.id),
         bi = recentIds.indexOf(b.id);
       return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
     });
+  }
+  if (tab === 'library' || tab === 'meals') foods = [];
+  useEffect(() => setLimit(20), [search, tab]);
   function select(f: Food) {
     setSelected(f);
     const p = profile?.last_portions[f.id];
@@ -87,6 +103,9 @@ export default function AddFood({
     try {
       if (!day) throw Error('Choose a date');
       if (saved) {
+        const factor = Number(mealFactor);
+        if (!(factor > 0) || !Number.isFinite(factor))
+          throw Error('Enter a positive meal multiplier');
         const items = data.saved_meal_items.filter((x) => x.saved_meal_id === saved);
         if (!items.length) throw Error('This meal has no items');
         const zeroDay = data.diary_days.find((d) => d.date === day && d.zero_intake);
@@ -97,9 +116,9 @@ export default function AddFood({
             meal,
             food_id: x.food_id,
             name: x.name,
-            quantity: x.quantity,
+            quantity: x.quantity * factor,
             unit: x.unit,
-            nutrition: x.nutrition,
+            nutrition: scale(x.nutrition, factor),
             portion_snapshot: x.portion_snapshot,
           }),
         );
@@ -159,7 +178,11 @@ export default function AddFood({
     }
   }
   return (
-    <Modal title={entry ? 'Edit diary entry' : 'Add to your diary'} onClose={onClose}>
+    <Modal
+      title={entry ? 'Edit diary entry' : 'Add to your diary'}
+      onClose={onClose}
+      dirty={JSON.stringify({ quantity, unit, meal, day, name, calories }) !== original.current}
+    >
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -173,7 +196,11 @@ export default function AddFood({
           </label>
           <label>
             Meal
-            <select value={meal} onChange={(e) => setMeal(e.target.value as Meal)}>
+            <select
+              aria-label="Meal"
+              value={meal}
+              onChange={(e) => setMeal(e.target.value as Meal)}
+            >
               {meals.map((m) => (
                 <option key={m}>{m}</option>
               ))}
@@ -187,19 +214,23 @@ export default function AddFood({
               <input
                 aria-label="Search saved foods"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search your foods, brands…"
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  if (tab === 'recent') setTab('all');
+                }}
+                placeholder="Search foods, brands or barcodes…"
               />
             </div>
             <div className="chips">
-              {['recent', 'favourites', 'all', 'library'].map((t) => (
+              {['recent', 'favourites', 'all', 'library', 'meals'].map((t) => (
                 <button
                   type="button"
                   key={t}
                   className={tab === t ? 'selected' : ''}
+                  aria-pressed={tab === t}
                   onClick={() => setTab(t)}
                 >
-                  {t[0].toUpperCase() + t.slice(1)}
+                  {t === 'meals' ? 'Saved meals' : t[0].toUpperCase() + t.slice(1)}
                 </button>
               ))}
               <button
@@ -216,7 +247,7 @@ export default function AddFood({
             </div>
             {!quick && (
               <div className="food-picker">
-                {foods.slice(0, 60).map((f) => (
+                {foods.slice(0, limit).map((f) => (
                   <button
                     type="button"
                     key={f.id}
@@ -235,12 +266,25 @@ export default function AddFood({
                     {favouriteIds.includes(f.id) ? <Star size={17} /> : <Plus size={17} />}
                   </button>
                 ))}
-                {!foods.length && tab !== 'library' && (
-                  <p className="muted">No saved foods yet. Add your own or scan a package.</p>
+                {!foods.length && tab !== 'library' && tab !== 'meals' && (
+                  <p className="muted">
+                    {search
+                      ? 'No matches in this category.'
+                      : tab === 'recent'
+                        ? 'Foods you log will appear here.'
+                        : tab === 'favourites'
+                          ? 'Star foods in Foods to find them here.'
+                          : 'No saved foods yet.'}
+                  </p>
                 )}
               </div>
             )}
-            {!quick && (search || tab === 'library' || !foods.length) && (
+            {foods.length > limit && (
+              <button type="button" className="secondary" onClick={() => setLimit(limit + 20)}>
+                Show more saved foods ({foods.length - limit} more)
+              </button>
+            )}
+            {!quick && (tab === 'library' || tab === 'all') && (
               <StarterLibrary
                 compact
                 search={search}
@@ -251,13 +295,28 @@ export default function AddFood({
                 }}
               />
             )}
-            <button type="button" className="text-button" onClick={onCreate}>
+            {(tab === 'recent' || tab === 'favourites') && (
+              <button type="button" className="text-button" onClick={() => setTab('all')}>
+                Search all saved and reference foods
+              </button>
+            )}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => onCreate({ date: day, meal })}
+            >
               + Create a custom food
             </button>
-            {data.saved_meals.length > 0 && (
+            {tab === 'meals' && data.saved_meals.length === 0 && (
+              <p className="muted">
+                Use Save meal under a logged meal in your diary to reuse it here.
+              </p>
+            )}
+            {tab === 'meals' && data.saved_meals.length > 0 && (
               <label>
-                Or use a saved meal
+                Saved meal
                 <select
+                  aria-label="Saved meal"
                   value={saved}
                   onChange={(e) => {
                     setSaved(e.target.value);
@@ -295,6 +354,39 @@ export default function AddFood({
             <strong>{data.saved_meals.find((item) => item.id === saved)?.name}</strong>
             <p className="small muted">
               Adds the saved meal's original portions and nutrition to your diary.
+            </p>
+            <label>
+              Meal multiplier
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="any"
+                value={mealFactor}
+                onChange={(e) => setMealFactor(e.target.value)}
+              />
+            </label>
+            {data.saved_meal_items
+              .filter((item) => item.saved_meal_id === saved)
+              .map((item) => (
+                <p key={item.id}>
+                  {item.name} · {fmt(item.quantity * factorPreview)} {item.unit} ·{' '}
+                  {fmt(scale(item.nutrition, factorPreview).calories)} kcal
+                </p>
+              ))}
+            <div
+              className="portion-preview"
+              role="group"
+              aria-label="Saved meal nutrition"
+              aria-live="polite"
+            >
+              <span>{fmt(savedPreview.calories)} kcal</span>
+              <span>{fmt(savedPreview.protein)} g protein</span>
+              <span>{fmt(savedPreview.carbs)} g carbs</span>
+              <span>{fmt(savedPreview.fat)} g fat</span>
+            </div>
+            <p className="small muted">
+              Unknown values keep totals incomplete. The multiplier scales every saved portion.
             </p>
           </div>
         )}

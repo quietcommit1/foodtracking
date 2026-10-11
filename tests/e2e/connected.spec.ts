@@ -122,8 +122,10 @@ test('missing barcode → manual save → rescan → log → edit historical sna
   await page.getByLabel('Protein (g)', { exact: true }).fill('20');
   await page.getByLabel('Carbohydrates (g)', { exact: true }).fill('4');
   await page.getByLabel('Fat (g)', { exact: true }).fill('24');
-  await page.getByRole('button', { name: 'Save to my foods' }).click();
+  await page.getByRole('button', { name: 'Save & log food' }).click();
   await expect.poll(() => api.db.foods.length).toBe(1);
+  await expect(page.getByRole('heading', { name: 'Add to your diary' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close dialog' }).click();
   expect(api.external()).toBe(1);
   await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
   await page.getByLabel('Or enter barcode').fill('8901234567890');
@@ -181,7 +183,10 @@ test('production PWA survives offline reload and syncs a cached custom product o
   });
   expect(manifest.display).toBe('standalone');
   expect(manifest.start_url).toBe('/');
-  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute('content', /viewport-fit=cover/);
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+    'content',
+    /viewport-fit=cover/,
+  );
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
@@ -283,8 +288,10 @@ test('scanned OFF legacy product fills all macros, saves and rescans without ext
   await expect(page.getByLabel('Protein (g)', { exact: true })).toHaveValue('52');
   await expect(page.getByLabel('Carbohydrates (g)', { exact: true })).toHaveValue('33');
   await expect(page.getByLabel('Fat (g)', { exact: true })).toHaveValue('0.5');
-  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await page.getByRole('button', { name: 'Save & log food', exact: true }).click();
   await expect.poll(() => api.db.foods.length).toBe(1);
+  await expect(page.getByRole('heading', { name: 'Add to your diary' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
   await page.getByLabel('Or enter barcode').fill('8901234567890');
   await page.getByRole('button', { name: 'Look up product' }).click();
@@ -361,8 +368,13 @@ test('mobile food choice shows weight immediately with stable input sizing and a
   await page.setViewportSize({ width: 390, height: 460 });
   const compactDialog = await page.getByRole('dialog').boundingBox();
   expect(compactDialog!.height).toBeLessThanOrEqual(432);
-  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).scrollIntoViewIfNeeded();
-  await expect(page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true })).toBeInViewport();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Add food', exact: true })
+    .scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }),
+  ).toBeInViewport();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-portion-step.png' });
   await page.getByRole('button', { name: 'Change food' }).click();
@@ -381,4 +393,226 @@ test('mobile food choice shows weight immediately with stable input sizing and a
   await expect(breakfast.locator('.entry-protein')).toHaveText('13 g protein');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await breakfast.screenshot({ path: '/tmp/everyday-meal-protein.png' });
+});
+
+test('creating food preserves past-date meal context and protects the draft', async ({ page }) => {
+  const api = await backend(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByRole('button', { name: 'Previous day' }).click();
+  const date = await page.getByLabel('Select diary date').inputValue();
+  await page.getByRole('button', { name: 'Add food to Lunch', exact: true }).click();
+  await page.getByRole('button', { name: '+ Create a custom food', exact: true }).click();
+  await page.getByLabel('Food or product name').fill('My lunch paneer');
+  await page.getByLabel('Calories (kcal)', { exact: true }).fill('200');
+  await page.getByLabel('Protein (g)', { exact: true }).fill('20');
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('You have unsaved changes.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Keep editing', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(page.getByLabel('Protein (g)', { exact: true })).toBeFocused();
+  await expect(page.getByLabel('Food or product name')).toHaveValue('My lunch paneer');
+  await page.getByRole('button', { name: 'Save & log food', exact: true }).click();
+  await expect(page.getByLabel('Date', { exact: true })).toHaveValue(date);
+  await expect(page.getByLabel('Meal', { exact: true })).toHaveValue('Lunch');
+  await page.getByLabel('Quantity', { exact: true }).fill('50');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
+  await expect.poll(() => api.db.diary_entries.length).toBe(1);
+  expect(api.db.diary_entries[0]).toMatchObject({
+    date,
+    meal: 'Lunch',
+    nutrition: { calories: 100, protein: 10, carbs: null },
+  });
+});
+
+test('device storage failure keeps the food form editable and retry creates one product', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New food', exact: true }).click();
+  await page.getByLabel('Food or product name').fill('Device save retry');
+  await page.evaluate(() => {
+    const original = IDBObjectStore.prototype.put;
+    (window as any).restoreWrite = () => {
+      IDBObjectStore.prototype.put = original;
+    };
+    IDBObjectStore.prototype.put = function (...args: Parameters<typeof original>) {
+      if (this.name === 'accounts') throw new DOMException('Quota exhausted', 'QuotaExceededError');
+      return original.apply(this, args);
+    };
+  });
+  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText(
+    'Your inputs are retained',
+  );
+  await expect(page.getByLabel('Food or product name')).toHaveValue('Device save retry');
+  expect(api.db.foods).toHaveLength(0);
+  await page.evaluate(() => (window as any).restoreWrite());
+  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await expect.poll(() => api.db.foods.length).toBe(1);
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+});
+
+test('recipe ingredient search and inline quantity changes preserve cooked-weight calculations', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Recipes', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New recipe', exact: true }).click();
+  await page.getByLabel('Recipe name').fill('Soya recipe fixture');
+  await page.getByLabel('Number of servings').fill('2');
+  await page.getByLabel('Final cooked weight (g, optional)').fill('200');
+  await page.getByLabel('Search ingredients').fill('soya chunks');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  await page.getByLabel('Quantity in g', { exact: true }).fill('25');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByLabel('Quantity for Soya chunks — dry (g)', { exact: true }).fill('50');
+  await expect(page.getByText('Batch: 172.5 kcal', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save recipe & logging food', exact: true }).click();
+  await expect.poll(() => api.db.recipes.length).toBe(1);
+  expect(api.db.foods.find((food) => food.source === 'recipe')?.nutrition).toMatchObject({
+    calories: 86.25,
+    protein: 13,
+    fibre: null,
+  });
+  expect(api.db.recipe_ingredients[0].quantity).toBe(50);
+});
+
+test('nutrition basis changes require review before a product can be saved', async ({ page }) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New food', exact: true }).click();
+  await page.getByLabel('Food or product name').fill('Basis review fixture');
+  await page.getByLabel('Calories (kcal)', { exact: true }).fill('200');
+  await page.getByLabel('Nutrition basis').selectOption('serving');
+  await expect(page.getByRole('button', { name: 'Save to my foods', exact: true })).toBeDisabled();
+  await expect(page.getByRole('alert')).toContainText('existing numbers have not been converted');
+  await page.getByLabel('Calories (kcal)', { exact: true }).fill('100');
+  await page.getByRole('checkbox', { name: /I checked that these values/ }).check();
+  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await expect.poll(() => api.db.foods.length).toBe(1);
+  expect(api.db.foods[0]).toMatchObject({ basis: 'serving', nutrition: { calories: 100 } });
+});
+
+test('saved meals show portions and scaled macros and can be managed without changing diary snapshots', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByRole('button', { name: 'Quick calories', exact: true }).click();
+  await page.getByLabel('Entry name').fill('Saved chai');
+  await page.getByLabel('Calories (kcal)', { exact: true }).fill('80');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
+  await expect.poll(() => api.db.diary_entries.length).toBe(1);
+  await page.getByRole('button', { name: 'Save meal', exact: true }).click();
+  await page.getByLabel('Meal name', { exact: true }).fill('Morning chai');
+  await page.getByRole('button', { name: 'Save for next time', exact: true }).click();
+  await expect.poll(() => api.db.saved_meals.length).toBe(1);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByRole('button', { name: 'Saved meals', exact: true }).click();
+  await page.getByLabel('Saved meal', { exact: true }).selectOption(api.db.saved_meals[0].id);
+  await page.getByLabel('Meal multiplier', { exact: true }).fill('2');
+  await expect(page.getByLabel('Saved meal nutrition')).toContainText('160 kcal');
+  await expect(page.getByLabel('Saved meal nutrition')).toContainText('Unknown g protein');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
+  await expect.poll(() => api.db.diary_entries.length).toBe(2);
+  expect(api.db.diary_entries[1].nutrition).toMatchObject({ calories: 160, protein: null });
+  await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+  await page.getByLabel('Saved meal name', { exact: true }).fill('Chai favourite');
+  await page.getByRole('button', { name: 'Rename meal', exact: true }).click();
+  await expect.poll(() => api.db.saved_meals[0].name).toBe('Chai favourite');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete saved meal', exact: true }).click();
+  await expect.poll(() => api.db.saved_meals.length).toBe(0);
+  expect(api.db.diary_entries).toHaveLength(2);
+  expect(api.db.saved_meal_items).toHaveLength(0);
+});
+
+test('Today follows local midnight on resume while a historical date stays selected', async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date('2026-10-11T23:59:00') });
+  await backend(page);
+  await login(page);
+  await expect(page.getByLabel('Select diary date')).toHaveValue('2026-10-11');
+  await page.clock.setSystemTime(new Date('2026-10-12T00:01:00'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByLabel('Select diary date')).toHaveValue('2026-10-12');
+  await page.getByLabel('Select diary date').fill('2026-10-01');
+  await page.clock.setSystemTime(new Date('2026-10-13T00:01:00'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByLabel('Select diary date')).toHaveValue('2026-10-01');
+});
+
+test('Recent excludes unused foods and searching Favourites keeps that filter', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  const food = (id: string, name: string) => ({
+    id,
+    user_id: uid,
+    name,
+    brand: '',
+    barcode: null,
+    basis: 'g' as const,
+    basis_amount: 100,
+    serving_size: null,
+    nutrition: { calories: 100, protein: 10, carbs: 5, fat: 4, fibre: null },
+    notes: '',
+    source: 'manual' as const,
+    source_id: null,
+    source_url: null,
+    source_data: null,
+    state: 'raw' as const,
+  });
+  api.db.foods.push(
+    food(crypto.randomUUID(), 'Green favourite'),
+    food(crypto.randomUUID(), 'Green unused'),
+  );
+  api.db.favourites.push({ id: crypto.randomUUID(), user_id: uid, food_id: api.db.foods[0].id });
+  api.db.diary_entries.push({
+    id: crypto.randomUUID(),
+    user_id: uid,
+    food_id: api.db.foods[0].id,
+    name: 'Green favourite',
+    date: '2026-10-10',
+    meal: 'Lunch',
+    quantity: 100,
+    unit: 'g',
+    nutrition: api.db.foods[0].nutrition,
+    portion_snapshot: {},
+  });
+  await login(page);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: /^Green favourite/ }),
+  ).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Favourites', exact: true }).click();
+  await page.getByLabel('Search saved foods').fill('Green');
+  await expect(page.getByRole('button', { name: 'Favourites', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: /^Green unused/ }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Library', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
+    0,
+  );
 });

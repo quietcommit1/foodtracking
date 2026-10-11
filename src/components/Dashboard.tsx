@@ -14,7 +14,7 @@ import {
   Bookmark,
   Utensils,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useStore, base, op } from '../store';
 import { fmt, knownTotal, localDate, offsetDate, targetAt } from '../nutrition';
 import { meals, type Entry, type Meal, type Nutrient } from '../types';
@@ -92,6 +92,8 @@ export default function Dashboard({
   const [mealName, setMealName] = useState('');
   const [deleteEntry, setDeleteEntry] = useState<Entry | null>(null);
   const [actionError, setActionError] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  const actionPending = useRef(false);
   const icons = [Sunrise, Sun, Moon, Coffee];
   const today = date === localDate();
   const nice = new Date(date + 'T12:00:00').toLocaleDateString(undefined, {
@@ -104,6 +106,9 @@ export default function Dashboard({
       setActionError('Choose a destination date');
       return;
     }
+    if (actionPending.current) return;
+    actionPending.current = true;
+    setActionBusy(true);
     try {
       await mutate(
         entries
@@ -113,6 +118,9 @@ export default function Dashboard({
       setCopy(null);
     } catch (e) {
       setActionError((e as Error).message);
+    } finally {
+      actionPending.current = false;
+      setActionBusy(false);
     }
   }
   async function bookmark() {
@@ -120,6 +128,9 @@ export default function Dashboard({
       setActionError('Enter a meal name');
       return;
     }
+    if (actionPending.current) return;
+    actionPending.current = true;
+    setActionBusy(true);
     try {
       const m = { ...base(), name: mealName.trim() };
       await mutate([
@@ -142,6 +153,9 @@ export default function Dashboard({
       setSaveMeal(null);
     } catch (e) {
       setActionError((e as Error).message);
+    } finally {
+      actionPending.current = false;
+      setActionBusy(false);
     }
   }
   return (
@@ -373,7 +387,10 @@ export default function Dashboard({
                         <button
                           className="icon-button"
                           aria-label={`Delete ${e.name}`}
-                          onClick={() => setDeleteEntry(e)}
+                          onClick={() => {
+                            setActionError('');
+                            setDeleteEntry(e);
+                          }}
                         >
                           <Trash2 size={15} />
                         </button>
@@ -435,7 +452,7 @@ export default function Dashboard({
                       date,
                       zero_intake: e.target.checked,
                     }),
-                  ]);
+                  ]).catch((e) => setActionError(e.message));
                 }}
               />
               Explicitly record zero intake for this day
@@ -444,6 +461,11 @@ export default function Dashboard({
               Unchecked empty days are unlogged, and excluded from history averages.
             </small>
           </div>
+          {actionError && !copy && !saveMeal && !deleteEntry && (
+            <p role="alert" className="error">
+              {actionError}
+            </p>
+          )}
         </div>
         <aside className="side-column">
           <div className="gentle-card">
@@ -500,7 +522,7 @@ export default function Dashboard({
               {actionError}
             </p>
           )}
-          <button className="primary" onClick={() => void copyMeal()}>
+          <button className="primary" disabled={actionBusy} onClick={() => void copyMeal()}>
             Copy meal
           </button>
         </Modal>
@@ -527,18 +549,36 @@ export default function Dashboard({
                 {actionError}
               </p>
             )}
-            <button className="primary">Save for next time</button>
+            <button className="primary" disabled={actionBusy}>
+              Save for next time
+            </button>
           </form>
         </Modal>
       )}
       {deleteEntry && (
         <Modal title="Delete this entry?" onClose={() => setDeleteEntry(null)}>
           <p>{deleteEntry.name} will be removed from this diary.</p>
+          {actionError && (
+            <p role="alert" className="error">
+              {actionError}
+            </p>
+          )}
           <button
             className="danger"
-            onClick={() => {
-              void mutate([op('diary_entries', deleteEntry, 'delete')]);
-              setDeleteEntry(null);
+            disabled={actionBusy}
+            onClick={async () => {
+              if (actionPending.current) return;
+              actionPending.current = true;
+              setActionBusy(true);
+              try {
+                await mutate([op('diary_entries', deleteEntry, 'delete')]);
+                setDeleteEntry(null);
+              } catch (e) {
+                setActionError((e as Error).message);
+              } finally {
+                actionPending.current = false;
+                setActionBusy(false);
+              }
             }}
           >
             Delete entry

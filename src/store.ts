@@ -22,9 +22,16 @@ let generation = 0;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
 let storageChain = Promise.resolve();
-function persist() {
-  const uid = owner;
-  const value = structuredClone({ data, queue });
+let commitChain = Promise.resolve();
+function commit<T>(fn: () => Promise<T>): Promise<T> {
+  const next = commitChain.catch(() => {}).then(fn);
+  commitChain = next.then(
+    () => {},
+    () => {},
+  );
+  return next;
+}
+function persist(value = structuredClone({ data, queue }), uid = owner) {
   if (!uid) return Promise.resolve();
   storageChain = storageChain
     .catch(() => {})
@@ -88,20 +95,52 @@ export async function setAccount(uid: string | null) {
   }
 }
 export async function mutate(ops: Operation[]) {
-  if (!owner) throw Error('Sign in before saving');
-  if (loading) throw Error('Wait for your account cache to load');
-  if (ops.some((op) => op.row.user_id !== owner))
-    throw Error('Account changed. Reopen the form before saving');
-  data = applyLocal(data, ops);
-  queue.push(...ops);
-  error = '';
-  emit();
-  try {
-    await persist();
-  } catch {
-    error = 'Local storage failed. Keep this page open and retry sync.';
+  await commit(async () => {
+    if (!owner) throw Error('Sign in before saving');
+    if (loading) throw Error('Wait for your account cache to load');
+    if (ops.some((op) => op.row.user_id !== owner))
+      throw Error('Account changed. Reopen the form before saving');
+    const g = generation;
+    const replaced = new Set<string>();
+    // An explicit edit can repair a rejected upsert in place. Never rewrite an in-flight batch.
+    // New operation IDs also cover an ambiguous response where the old write reached the server.
+    const corrected =
+      error && !syncing
+        ? queue.flatMap((pending) => {
+            if (pending.action !== 'upsert') return [pending];
+            const change = ops.find(
+              (change) =>
+                change.action === 'upsert' &&
+                change.table === pending.table &&
+                change.row.id === pending.row.id,
+            );
+            if (!change) return [pending];
+            if (replaced.has(change.id)) return [];
+            replaced.add(change.id);
+            return [change];
+          })
+        : queue;
+    const remaining = ops.filter((change) => !replaced.has(change.id));
+    const next = { data: applyLocal(data, ops), queue: [...corrected, ...remaining] };
+    try {
+      // A form is successful only after its account-scoped cache is durable.
+      await persist(structuredClone(next));
+    } catch {
+      if (g === generation) {
+        error =
+          'Could not save on this device. Your form is still open. Free some device storage and retry; nothing was submitted.';
+        emit();
+      }
+      throw Error(
+        'Could not save on this device. Your inputs are retained. Free some device storage and retry.',
+      );
+    }
+    if (g !== generation) throw Error('Account changed. Reopen the form before saving');
+    data = next.data;
+    queue = next.queue;
+    error = '';
     emit();
-  }
+  });
   void sync();
 }
 export function op(table: Table, row: any, action: 'upsert' | 'delete' = 'upsert'): Operation {
@@ -158,15 +197,21 @@ export async function sync() {
       const { error: e } = await supabase.rpc('apply_operations', { ops: batch });
       if (g !== generation) return;
       if (e) throw e;
-      const sent = new Set(batch.map((o) => o.id));
-      queue = queue.filter((o) => !sent.has(o.id));
-      await persist();
+      await commit(async () => {
+        if (g !== generation) return;
+        const sent = new Set(batch.map((o) => o.id));
+        queue = queue.filter((o) => !sent.has(o.id));
+        await persist();
+      });
     }
     const fresh = await fetchAll();
     if (g !== generation) return;
-    data = applyLocal(fresh, queue);
-    hydrated = true;
-    await persist();
+    await commit(async () => {
+      if (g !== generation) return;
+      data = applyLocal(fresh, queue);
+      hydrated = true;
+      await persist();
+    });
   } catch (e) {
     if (g === generation) error = String((e as any)?.message ?? e);
   } finally {

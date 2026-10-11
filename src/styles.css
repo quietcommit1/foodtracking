@@ -1766,6 +1766,61 @@ summary {
     gap: 5px;
   }
 }
+.history-chart-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.history-chart {
+  width: max-content;
+  min-width: 100%;
+}
+.history-chart button {
+  flex: 1 0 44px;
+  min-width: 44px;
+}
+.history-chart small {
+  font-size: 12px;
+}
+.ingredient {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ingredient > span {
+  flex: 1 1 120px;
+}
+.ingredient label {
+  flex: 0 1 150px;
+  font-size: 12px;
+}
+.ingredient input {
+  width: 100%;
+}
+.saved-meal-editor {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+@media (max-width: 760px) {
+  .macro p,
+  .macro-top,
+  .meal-head h3 small,
+  .zero-day,
+  .diary-heading .small,
+  .food-card .small {
+    font-size: 12px;
+  }
+  .macro-grid {
+    gap: 12px;
+  }
+  .macro p {
+    line-height: 1.6;
+  }
+  .mobile-nav button {
+    font-size: 11px;
+  }
+  .history-chart small {
+    font-size: 12px;
+  }
+}
 @media (max-width: 390px) {
   .workspace main {
     padding-left: 14px;
@@ -2078,7 +2133,39 @@ dialog {
     padding-right: max(7px, env(safe-area-inset-right, 0px));
   }
   dialog {
-    max-height: calc(100dvh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-    max-width: calc(100vw - 28px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+    max-height: calc(
+      100dvh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+    );
+    max-width: calc(
+      100vw - 28px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)
+    );
+  }
+}
+.history-summary h2 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+@media (max-width: 760px) {
+  .macro-top {
+    font-size: 12px;
+  }
+  .macro-top > span:nth-child(2) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 760px) {
+  dialog {
+    /* iOS keyboards resize the visual viewport even when the layout viewport stays tall. */
+    max-height: calc(
+      var(--dialog-visible-height, 100dvh) - 28px - env(safe-area-inset-top, 0px) -
+        env(safe-area-inset-bottom, 0px)
+    );
+    top: var(--dialog-center, 50%);
+    bottom: auto;
+    margin-block: 0;
+    transform: translateY(-50%);
   }
 }

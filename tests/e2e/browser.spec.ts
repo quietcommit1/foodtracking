@@ -62,3 +62,47 @@ test('large USDA reference library loads and searches by multiple terms', async 
   ).toBeVisible();
   await expect(page.locator('.starter-library').getByText(/USDA SR28 · 352 kcal/)).toBeVisible();
 });
+
+test('mobile history has readable dates and 44px controls without page overflow', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: '30 days', exact: true }).click();
+  const buttons = page.locator('.history-chart button');
+  await expect(buttons).toHaveCount(30);
+  expect(
+    await buttons.first().evaluate((el) => el.getBoundingClientRect().width),
+  ).toBeGreaterThanOrEqual(44);
+  expect(
+    await page
+      .locator('.history-chart small')
+      .first()
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+  ).toBeGreaterThanOrEqual(12);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await buttons.last().scrollIntoViewIfNeeded();
+  await expect(buttons.last()).toBeInViewport();
+  const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page.screenshot({ path: '/tmp/everyday-ux-history.png', fullPage: true });
+});
+
+test('narrow mobile dialog follows the visible viewport and restores keyboard focus', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 600 });
+  await page.goto('/');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByLabel('Email', { exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
+  await page.setViewportSize({ width: 320, height: 400 });
+  const bounds = await page.getByRole('dialog').boundingBox();
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(400);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Add Food', exact: true })).toBeFocused();
+});

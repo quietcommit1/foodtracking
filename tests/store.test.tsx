@@ -7,6 +7,7 @@ const mock = vi.hoisted(() => ({
   seen: new Set<string>(),
   calls: [] as any[],
   fail: false,
+  gate: null as Promise<void> | null,
   external: vi.fn(),
 }));
 vi.mock('@supabase/supabase-js', () => ({
@@ -33,6 +34,7 @@ vi.mock('@supabase/supabase-js', () => ({
     functions: { invoke: mock.external },
     rpc: async (name: string, { ops }: any) => {
       mock.calls.push(ops);
+      if (mock.gate) await mock.gate;
       if (mock.fail) return { error: { message: 'Project unavailable' } };
       for (const o of ops) {
         if (mock.seen.has(o.id)) continue;
@@ -62,6 +64,7 @@ afterEach(async () => {
   mock.calls = [];
   mock.seen.clear();
   mock.fail = false;
+  mock.gate = null;
   online(true);
 });
 it('queues offline edits and retries stable IDs without duplicate entries', async () => {
@@ -152,4 +155,70 @@ it('manual product sync makes later saved barcode lookups bypass the external fu
   expect(found.status).toBe('saved');
   expect(found.food.name).toBe(food.name);
   expect(mock.external).not.toHaveBeenCalled();
+});
+it('rejects a failed device write without accepting changes, then retries once', async () => {
+  online(false);
+  await store.setAccount(uid2);
+  const { result } = renderHook(() => store.useStore());
+  const before = result.current.data.foods.length;
+  const operation = store.op('foods', { ...store.base(), name: 'Storage retry fixture' });
+  const write = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+    throw new DOMException('Quota exhausted', 'QuotaExceededError');
+  });
+  await act(async () => {
+    await expect(store.mutate([operation])).rejects.toThrow('Could not save on this device');
+  });
+  expect(result.current.data.foods).toHaveLength(before);
+  expect(result.current.queue).not.toContainEqual(operation);
+  write.mockRestore();
+  await act(() => store.mutate([operation]));
+  expect(result.current.data.foods).toHaveLength(before + 1);
+  expect(result.current.queue.filter((change) => change.id === operation.id)).toHaveLength(1);
+});
+it('an explicit correction replaces rejected upserts without stale writes undoing it', async () => {
+  online(false);
+  await store.setAccount(uid2);
+  const row = { ...store.base(), name: 'Rejected product', barcode: 'conflict' };
+  await store.mutate([store.op('foods', row)]);
+  await store.mutate([store.op('foods', { ...row, name: 'Rejected product revision' })]);
+  online(true);
+  mock.fail = true;
+  await store.sync();
+  const { result } = renderHook(() => store.useStore());
+  online(false);
+  const correction = store.op('foods', { ...row, barcode: null });
+  await act(() => store.mutate([correction]));
+  const corrected = result.current.queue.filter((change) => change.row.id === row.id);
+  expect(corrected).toHaveLength(1);
+  expect(corrected[0].id).toBe(correction.id);
+  mock.fail = false;
+  online(true);
+  await act(() => store.sync());
+  expect(mock.data.foods.find((food: Food) => food.id === row.id).barcode).toBeNull();
+});
+it('an edit during an in-flight sync keeps its own operation and wins after reconnect', async () => {
+  online(false);
+  await store.setAccount(uid2);
+  const row = { ...store.base(), name: 'Before edit' };
+  const first = store.op('foods', row);
+  await store.mutate([first]);
+  let release!: () => void;
+  mock.gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  online(true);
+  const running = store.sync();
+  await waitFor(() =>
+    expect(mock.calls.some((batch) => batch.some((change: any) => change.id === first.id))).toBe(
+      true,
+    ),
+  );
+  const second = store.op('foods', { ...row, name: 'After edit' });
+  await store.mutate([second]);
+  release();
+  await running;
+  expect(mock.seen.has(first.id)).toBe(true);
+  expect(mock.seen.has(second.id)).toBe(true);
+  expect(mock.data.foods.filter((food: Food) => food.id === row.id)).toHaveLength(1);
+  expect(mock.data.foods.find((food: Food) => food.id === row.id).name).toBe('After edit');
 });

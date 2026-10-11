@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Modal from './Modal';
+import SavedMealEditor from './SavedMealEditor';
 import { base, op, useStore, supabase, serverBackup, restore } from '../store';
 import { localDate, targetAt } from '../nutrition';
 import { nutrientKeys, type Data, type Profile } from '../types';
@@ -172,6 +173,17 @@ export default function Settings({
             <option value="dark">Dark</option>
           </select>
         </label>
+      </section>
+      <section>
+        <h3>Saved meals</h3>
+        <p className="muted">
+          Find these in Add Food → Saved meals. Logged entries keep their original nutrition.
+        </p>
+        {data.saved_meals.length ? (
+          data.saved_meals.map((meal) => <SavedMealEditor key={meal.id} meal={meal} />)
+        ) : (
+          <p className="small muted">Save a logged meal from your diary to reuse its portions.</p>
+        )}
       </section>
       <section>
         <h3>Backups & export</h3>

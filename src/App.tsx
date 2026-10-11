@@ -46,23 +46,51 @@ type Dialog =
   | { kind: 'auth' }
   | { kind: 'settings' }
   | { kind: 'scan' }
-  | { kind: 'food'; food?: Food; barcode?: string; notice?: string }
-  | { kind: 'add'; food?: Food; meal?: Meal; entry?: Entry }
+  | {
+      kind: 'food';
+      food?: Food;
+      barcode?: string;
+      notice?: string;
+      logAfter?: { date: string; meal?: Meal };
+    }
+  | { kind: 'add'; food?: Food; meal?: Meal; entry?: Entry; date?: string }
   | { kind: 'recipe'; recipe?: Recipe }
   | { kind: 'delete'; food: Food };
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState('Today');
   const [date, setDate] = useState(localDate());
+  const lastToday = useRef(localDate());
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All foods');
   const [lookup, setLookup] = useState(false);
   const [toast, setToast] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const accountRef = useRef<string | null>(null);
   const store = useStore();
   const { data, queue, error, syncing, loading, hydrated, mutate } = store;
+  useEffect(() => {
+    const checkDate = () => {
+      if (document.hidden) return;
+      const today = localDate();
+      if (today !== lastToday.current) {
+        const previous = lastToday.current;
+        setDate((selected) => (selected === previous ? today : selected));
+        lastToday.current = today;
+      }
+    };
+    window.addEventListener('focus', checkDate);
+    document.addEventListener('visibilitychange', checkDate);
+    const timer = window.setInterval(checkDate, 30000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', checkDate);
+      document.removeEventListener('visibilitychange', checkDate);
+    };
+  }, []);
   useEffect(() => {
     if (!supabase) return;
     const {
@@ -118,6 +146,7 @@ export default function App() {
         setDialog({
           kind: 'food',
           barcode,
+          logAfter: { date },
           notice: 'You’re offline. Create a private product now; it will sync when you reconnect.',
         });
         return;
@@ -130,6 +159,7 @@ export default function App() {
         setDialog({
           kind: 'food',
           food,
+          logAfter: { date },
           notice:
             missing.length === 4
               ? 'Product record found, but Open Food Facts has no nutrition values for this barcode. Enter the package label once and save it; future scans will use your private saved values.'
@@ -141,6 +171,7 @@ export default function App() {
         setDialog({
           kind: 'food',
           barcode,
+          logAfter: { date },
           notice:
             result.status === 'not_found'
               ? 'Product not found. Add the package nutrition to recognise it next time.'
@@ -150,6 +181,7 @@ export default function App() {
       setDialog({
         kind: 'food',
         barcode: code,
+        logAfter: { date },
         notice: `Lookup unavailable: ${(e as Error).message}. Manual entry is available.`,
       });
     } finally {
@@ -299,11 +331,25 @@ export default function App() {
                   {queue.map((q) => (
                     <div key={q.id}>
                       {q.action} · {q.table} · {q.row.name ?? q.row.date ?? q.row.id}
+                      {q.table === 'foods' && q.action === 'upsert' && (
+                        <button
+                          className="text-button"
+                          onClick={() =>
+                            setDialog({
+                              kind: 'food',
+                              food: data.foods.find((food) => food.id === q.row.id) ?? q.row,
+                            })
+                          }
+                        >
+                          Correct product
+                        </button>
+                      )}
                     </div>
                   ))}
                   <p>
-                    For a duplicate barcode, reload the server library and edit the existing
-                    product. Export your pending edits before discarding them.
+                    Correct a rejected product above, then save to retry. For a conflicting barcode,
+                    check the package or leave the barcode blank while keeping its nutrition. Export
+                    your pending edits before discarding them.
                   </p>
                   <button
                     className="text-button"
@@ -398,6 +444,7 @@ export default function App() {
                 {['All foods', 'Favourites', 'Packaged', 'Homemade'].map((t) => (
                   <button
                     className={filter === t ? 'selected' : ''}
+                    aria-pressed={filter === t}
                     onClick={() => setFilter(t)}
                     key={t}
                   >
@@ -426,7 +473,8 @@ export default function App() {
                         <button
                           className={`icon-button ${data.favourites.some((x) => x.food_id === f.id) ? 'is-favourite' : ''}`}
                           aria-label={`Toggle favourite ${f.name}`}
-                          onClick={() => void favourite(f)}
+                          aria-pressed={data.favourites.some((x) => x.food_id === f.id)}
+                          onClick={() => void favourite(f).catch((e) => setToast(e.message))}
                         >
                           <Star size={19} />
                         </button>
@@ -478,7 +526,10 @@ export default function App() {
                         <button
                           className="icon-button"
                           aria-label={`Delete ${f.name}`}
-                          onClick={() => setDialog({ kind: 'delete', food: f })}
+                          onClick={() => {
+                            setDeleteError('');
+                            setDialog({ kind: 'delete', food: f });
+                          }}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -612,6 +663,7 @@ export default function App() {
             <button
               key={name}
               className={tab === name ? 'active' : ''}
+              aria-current={tab === name ? 'page' : undefined}
               onClick={() => setTab(name)}
             >
               <Icon size={21} />
@@ -643,22 +695,25 @@ export default function App() {
           food={dialog.food}
           barcode={dialog.barcode}
           notice={dialog.notice}
+          continueToLog={!!dialog.logAfter}
           onClose={() => setDialog(null)}
-          onSaved={() =>
-            setToast(
-              'Food saved locally. It will be synced to your Supabase library. You can now log it from Foods.',
-            )
-          }
+          onSaved={(food) => {
+            if (dialog.logAfter) setDialog({ kind: 'add', food, ...dialog.logAfter });
+            else {
+              setDialog(null);
+              setToast('Food saved on this device. Your library will sync when connected.');
+            }
+          }}
         />
       )}{' '}
       {dialog?.kind === 'add' && (
         <AddFood
-          date={date}
+          date={dialog.date ?? date}
           initialFood={dialog.food}
           initialMeal={dialog.meal}
           entry={dialog.entry}
           onClose={() => setDialog(null)}
-          onCreate={() => setDialog({ kind: 'food' })}
+          onCreate={(context) => setDialog({ kind: 'food', logAfter: context })}
         />
       )}{' '}
       {dialog?.kind === 'recipe' && (
@@ -670,11 +725,24 @@ export default function App() {
             Historical diary snapshots are preserved. Foods used by recipe ingredients cannot be
             deleted until removed from those recipes.
           </p>
+          {deleteError && (
+            <p role="alert" className="error">
+              {deleteError}
+            </p>
+          )}
           <button
             className="danger"
-            onClick={() => {
-              void mutate([op('foods', dialog.food, 'delete')]);
-              setDialog(null);
+            disabled={deleting}
+            onClick={async () => {
+              setDeleting(true);
+              try {
+                await mutate([op('foods', dialog.food, 'delete')]);
+                setDialog(null);
+              } catch (e) {
+                setDeleteError((e as Error).message);
+              } finally {
+                setDeleting(false);
+              }
             }}
           >
             Delete {dialog.food.name}

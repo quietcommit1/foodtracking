@@ -9,12 +9,14 @@ export default function FoodForm({
   notice = '',
   onClose,
   onSaved,
+  continueToLog = false,
 }: {
   food?: Food;
   barcode?: string;
   notice?: string;
   onClose: () => void;
   onSaved?: (f: Food) => void;
+  continueToLog?: boolean;
 }) {
   const { data, mutate } = useStore();
   const [draft, setDraft] = useState<Food>(
@@ -37,6 +39,9 @@ export default function FoodForm({
     },
   );
   const [error, setError] = useState('');
+  const original = useRef(JSON.stringify(draft));
+  const [basisReviewed, setBasisReviewed] = useState(true);
+  const [basisChanged, setBasisChanged] = useState(false);
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
   const [duplicate, setDuplicate] = useState<Food | null>(null);
@@ -50,6 +55,7 @@ export default function FoodForm({
     setSaving(true);
     try {
       if (!draft.name.trim()) throw Error('Enter a product or food name');
+      if (!basisReviewed) throw Error('Confirm the nutrition values match the changed basis');
       if (draft.basis_amount <= 0 || (draft.serving_size !== null && draft.serving_size <= 0))
         throw Error('Basis and serving size must be positive');
       if (
@@ -95,8 +101,8 @@ export default function FoodForm({
         );
       }
       await mutate(ops);
-      onSaved?.(f);
-      onClose();
+      if (onSaved) onSaved(f);
+      else onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -105,7 +111,11 @@ export default function FoodForm({
     }
   }
   return (
-    <Modal title={food ? 'Edit food' : 'Add a food'} onClose={onClose}>
+    <Modal
+      title={food ? 'Review food' : 'Add a food'}
+      onClose={onClose}
+      dirty={JSON.stringify(draft) !== original.current || !!portion.name}
+    >
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -151,13 +161,15 @@ export default function FoodForm({
             Nutrition basis
             <select
               value={draft.basis}
-              onChange={(e) =>
+              onChange={(e) => {
+                if (nutrientKeys.some((k) => draft.nutrition[k] !== null)) setBasisReviewed(false);
+                setBasisChanged(true);
                 setDraft({
                   ...draft,
                   basis: e.target.value as Food['basis'],
                   basis_amount: e.target.value === 'serving' ? 1 : 100,
-                })
-              }
+                });
+              }}
             >
               <option value="g">Per 100 g</option>
               <option value="ml">Per 100 ml</option>
@@ -173,6 +185,22 @@ export default function FoodForm({
             </select>
           </label>
         </div>
+        {basisChanged && (
+          <div className="notice" role="alert">
+            <p>
+              The basis changed; existing numbers have not been converted. Update them from the
+              label before saving. Weight and volume are not interchangeable.
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={basisReviewed}
+                onChange={(e) => setBasisReviewed(e.target.checked)}
+              />{' '}
+              I checked that these values are per {draft.basis_amount} {draft.basis}.
+            </label>
+          </div>
+        )}
         {draft.basis === 'serving' && (
           <label>
             Serving measurement
@@ -290,12 +318,14 @@ export default function FoodForm({
             Edit {duplicate.name}
           </button>
         )}
-        <button className="primary wide" type="submit" disabled={saving}>
+        <button className="primary wide" type="submit" disabled={saving || !basisReviewed}>
           {saving
             ? 'Saving…'
-            : food && data.foods.some((f) => f.id === food.id)
-              ? 'Save changes'
-              : 'Save to my foods'}
+            : continueToLog
+              ? 'Save & log food'
+              : food && data.foods.some((f) => f.id === food.id)
+                ? 'Save changes'
+                : 'Save to my foods'}
         </button>
         <p className="small muted">
           {draft.source === 'manual'
