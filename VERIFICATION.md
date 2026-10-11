@@ -1,6 +1,6 @@
 # Verification evidence
 
-Validated in the onboarding cloud machine on 11 October 2026 with Node 24.19.0, npm 11.9.0 and installed Chromium. The repository began empty with an unborn Git branch; all application source is newly created and remains local/uncommitted. Nothing was pushed or deployed.
+Validated in the onboarding cloud machine on 11 October 2026 with Node 24.19.0, npm 11.9.0 and installed Chromium. The repository began empty with an unborn Git branch; the initial application was built locally. Source was subsequently committed and pushed to `quietcommit1/foodtracking` on `main`. Deployment status is documented in `DEPLOYMENT.md`.
 
 | Check                                        | Result                                                                                                                |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
