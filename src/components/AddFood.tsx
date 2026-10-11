@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Star } from 'lucide-react';
+import { Search } from 'lucide-react';
 import Modal from './Modal';
-import StarterLibrary from './StarterLibrary';
-import { catalogDraft, matchesFood } from '../catalog';
+import FoodPicker from './FoodPicker';
 import { base, op, useStore } from '../store';
 import { fmt, makeSnapshot, scale, total, unknown } from '../nutrition';
 import { meals, type Food, type Meal, type Entry } from '../types';
@@ -24,7 +23,7 @@ export default function AddFood({
   const { data, mutate } = useStore();
   const profile = data.profiles[0];
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState('recent');
+  const [showMeals, setShowMeals] = useState(false);
   const [selected, setSelected] = useState<Food | undefined>(initialFood);
   const savedPortion = initialFood ? profile?.last_portions[initialFood.id] : null;
   const [quantity, setQuantity] = useState(
@@ -44,7 +43,6 @@ export default function AddFood({
     entry?.nutrition.calories === null ? '' : String(entry?.nutrition.calories ?? ''),
   );
   const [saved, setSaved] = useState('');
-  const [limit, setLimit] = useState(20);
   const [mealFactor, setMealFactor] = useState('1');
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
@@ -72,22 +70,6 @@ export default function AddFood({
     /* validation stays in the form */
   }
 
-  const favouriteIds = data.favourites.map((f) => f.food_id);
-  const recentIds = [...data.diary_entries]
-    .sort((a, b) => (b.updated_at ?? b.date).localeCompare(a.updated_at ?? a.date))
-    .map((e) => e.food_id);
-  let foods = data.foods.filter((f) => matchesFood(f, search));
-  if (tab === 'favourites') foods = foods.filter((f) => favouriteIds.includes(f.id));
-  if (tab === 'recent') {
-    foods = foods.filter((f) => recentIds.includes(f.id));
-    foods.sort((a, b) => {
-      const ai = recentIds.indexOf(a.id),
-        bi = recentIds.indexOf(b.id);
-      return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-    });
-  }
-  if (tab === 'library' || tab === 'meals') foods = [];
-  useEffect(() => setLimit(20), [search, tab]);
   function select(f: Food) {
     setSelected(f);
     const p = profile?.last_portions[f.id];
@@ -212,27 +194,23 @@ export default function AddFood({
             <div className="search">
               <Search size={18} />
               <input
-                aria-label="Search saved foods"
+                aria-label="Search foods"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
-                  if (tab === 'recent') setTab('all');
                 }}
                 placeholder="Search foods, brands or barcodes…"
               />
             </div>
-            <div className="chips">
-              {['recent', 'favourites', 'all', 'library', 'meals'].map((t) => (
-                <button
-                  type="button"
-                  key={t}
-                  className={tab === t ? 'selected' : ''}
-                  aria-pressed={tab === t}
-                  onClick={() => setTab(t)}
-                >
-                  {t === 'meals' ? 'Saved meals' : t[0].toUpperCase() + t.slice(1)}
-                </button>
-              ))}
+            <div className="button-row">
+              <button
+                type="button"
+                className="text-button"
+                aria-expanded={showMeals}
+                onClick={() => setShowMeals(!showMeals)}
+              >
+                Saved meals
+              </button>
               <button
                 type="button"
                 className={quick ? 'selected' : ''}
@@ -245,74 +223,12 @@ export default function AddFood({
                 Quick calories
               </button>
             </div>
-            {!quick && (
-              <div className="food-picker">
-                {foods.slice(0, limit).map((f) => (
-                  <button
-                    type="button"
-                    key={f.id}
-                    onClick={() => {
-                      select(f);
-                      setSaved('');
-                    }}
-                  >
-                    <span>
-                      {f.name}
-                      <small>
-                        {f.brand || f.state} · {fmt(f.nutrition.calories)} kcal / {f.basis_amount}{' '}
-                        {f.basis}
-                      </small>
-                    </span>
-                    {favouriteIds.includes(f.id) ? <Star size={17} /> : <Plus size={17} />}
-                  </button>
-                ))}
-                {!foods.length && tab !== 'library' && tab !== 'meals' && (
-                  <p className="muted">
-                    {search
-                      ? 'No matches in this category.'
-                      : tab === 'recent'
-                        ? 'Foods you log will appear here.'
-                        : tab === 'favourites'
-                          ? 'Star foods in Foods to find them here.'
-                          : 'No saved foods yet.'}
-                  </p>
-                )}
-              </div>
-            )}
-            {foods.length > limit && (
-              <button type="button" className="secondary" onClick={() => setLimit(limit + 20)}>
-                Show more saved foods ({foods.length - limit} more)
-              </button>
-            )}
-            {!quick && (tab === 'library' || tab === 'all') && (
-              <StarterLibrary
-                compact
-                search={search}
-                saved={data.foods}
-                onChoose={(item) => {
-                  select(catalogDraft(item, base()));
-                  setSaved('');
-                }}
-              />
-            )}
-            {(tab === 'recent' || tab === 'favourites') && (
-              <button type="button" className="text-button" onClick={() => setTab('all')}>
-                Search all saved and reference foods
-              </button>
-            )}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => onCreate({ date: day, meal })}
-            >
-              + Create a custom food
-            </button>
-            {tab === 'meals' && data.saved_meals.length === 0 && (
+            {showMeals && data.saved_meals.length === 0 && (
               <p className="muted">
                 Use Save meal under a logged meal in your diary to reuse it here.
               </p>
             )}
-            {tab === 'meals' && data.saved_meals.length > 0 && (
+            {showMeals && data.saved_meals.length > 0 && (
               <label>
                 Saved meal
                 <select
@@ -333,6 +249,22 @@ export default function AddFood({
                 </select>
               </label>
             )}
+            <FoodPicker
+              search={search}
+              saved={data.foods}
+              entries={data.diary_entries}
+              onChoose={(food) => {
+                select(food);
+                setSaved('');
+              }}
+            />
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => onCreate({ date: day, meal })}
+            >
+              + Create a custom food
+            </button>
           </>
         )}
         {!entry && (selected || quick || saved) && (

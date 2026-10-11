@@ -1,5 +1,6 @@
 // Integration UI tests use an explicit fake Supabase HTTP backend, never a hosted project.
 import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import bwip from 'bwip-js/node';
 import { emptyData, type Data } from '../../src/types';
 const runtimeErrors = new WeakMap<Page, string[]>();
@@ -227,7 +228,7 @@ test('starter search logs fractional soya chunks and saves a reusable private fo
   const api = await backend(page);
   await login(page);
   await page.getByRole('button', { name: 'Add Food', exact: true }).click();
-  await page.getByLabel('Search saved foods').fill('soya chunks');
+  await page.getByLabel('Search foods').fill('soya chunks');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /^Soya chunks — dry/ })
@@ -249,7 +250,7 @@ test('starter search logs fractional soya chunks and saves a reusable private fo
     fibre: null,
   });
   await page.getByRole('button', { name: 'Add Food', exact: true }).click();
-  await page.getByLabel('Search saved foods').fill('soya chunks');
+  await page.getByLabel('Search foods').fill('soya chunks');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /^Soya chunks — dry/ })
@@ -357,14 +358,14 @@ test('mobile food choice shows weight immediately with stable input sizing and a
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
   await page.getByRole('button', { name: 'Add Food', exact: true }).click();
-  await page.getByLabel('Search saved foods').fill('soya chunks');
+  await page.getByLabel('Search foods').fill('soya chunks');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /^Soya chunks — dry/ })
     .click();
   const quantity = page.getByLabel('Quantity', { exact: true });
   await expect(quantity).toBeFocused();
-  await expect(page.getByLabel('Search saved foods')).toHaveCount(0);
+  await expect(page.getByLabel('Search foods')).toHaveCount(0);
   expect(
     await quantity.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize)),
   ).toBeGreaterThanOrEqual(16);
@@ -394,7 +395,7 @@ test('mobile food choice shows weight immediately with stable input sizing and a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-portion-step.png' });
   await page.getByRole('button', { name: 'Change food' }).click();
-  await expect(page.getByLabel('Search saved foods')).toBeVisible();
+  await expect(page.getByLabel('Search foods')).toBeVisible();
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /^Soya chunks — dry/ })
@@ -568,7 +569,7 @@ test('Today follows local midnight on resume while a historical date stays selec
   await expect(page.getByLabel('Select diary date')).toHaveValue('2026-10-01');
 });
 
-test('Recent excludes unused foods and searching Favourites keeps that filter', async ({
+test('one food list includes unused and reference foods and ranks used foods first', async ({
   page,
 }) => {
   const api = await backend(page);
@@ -590,15 +591,15 @@ test('Recent excludes unused foods and searching Favourites keeps that filter', 
     state: 'raw' as const,
   });
   api.db.foods.push(
-    food(crypto.randomUUID(), 'Green favourite'),
-    food(crypto.randomUUID(), 'Green unused'),
+    food(crypto.randomUUID(), 'Green zucchini'),
+    food(crypto.randomUUID(), 'Green apple'),
   );
   api.db.favourites.push({ id: crypto.randomUUID(), user_id: uid, food_id: api.db.foods[0].id });
   api.db.diary_entries.push({
     id: crypto.randomUUID(),
     user_id: uid,
     food_id: api.db.foods[0].id,
-    name: 'Green favourite',
+    name: 'Green zucchini',
     date: '2026-10-10',
     meal: 'Lunch',
     quantity: 100,
@@ -606,31 +607,31 @@ test('Recent excludes unused foods and searching Favourites keeps that filter', 
     nutrition: api.db.foods[0].nutrition,
     portion_snapshot: {},
   });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'dark' });
   await login(page);
   await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  const picker = page.getByRole('dialog').locator('.food-picker');
+  await expect(picker).toHaveCount(1);
+  await expect(picker.getByRole('button').first()).toContainText('Green zucchini');
+  await expect(picker.getByRole('button', { name: /^Green apple/ })).toBeVisible();
   await expect(
-    page.getByRole('dialog').getByRole('button', { name: /^Green favourite/ }),
-  ).toBeVisible();
-  await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
-    0,
-  );
-  await page.getByRole('button', { name: 'Favourites', exact: true }).click();
-  await page.getByLabel('Search saved foods').fill('Green');
-  await expect(page.getByRole('button', { name: 'Favourites', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
-    0,
-  );
-  await page.getByRole('button', { name: 'All', exact: true }).click();
+    page.getByRole('dialog').getByRole('button', { name: 'Recent', exact: true }),
+  ).toHaveCount(0);
   await expect(
-    page.getByRole('dialog').getByRole('button', { name: /^Green unused/ }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Library', exact: true }).click();
-  await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
-    0,
-  );
+    page.getByRole('dialog').getByRole('heading', { name: 'Food reference library' }),
+  ).toHaveCount(0);
+  await page.getByLabel('Search foods').fill('soya chunks');
+  await expect(picker.getByRole('button', { name: /^Soya chunks — dry/ })).toBeVisible();
+  const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-unified-food-picker.png' });
+  await expect(picker.getByRole('button', { name: /^Soya chunks — dry/ })).toBeVisible();
+  await picker.getByRole('button', { name: /^Soya chunks — dry/ }).click();
+  await expect(page.getByLabel('Quantity', { exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Change food' }).click();
+  await page.getByLabel('Search foods').fill('Green');
+  await expect(picker.getByRole('button', { name: /^Green apple/ })).toBeVisible();
 });
 
 test('first-time Add Food resumes the requested task after sign-in', async ({ page }) => {
