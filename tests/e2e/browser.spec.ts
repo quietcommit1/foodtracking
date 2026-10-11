@@ -51,3 +51,14 @@ test('Today dashboard meets automated WCAG 2 AA checks', async ({ page }) => {
   const dark = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(dark.violations).toEqual([]);
 });
+
+test('large USDA reference library loads and searches by multiple terms', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+  await expect(page.getByText(/8857 searchable foods/)).toBeVisible();
+  await page.getByLabel('Search your food library').fill('lentils raw');
+  await expect(
+    page.locator('.starter-library').getByRole('button', { name: /Lentils, raw/ }),
+  ).toBeVisible();
+  await expect(page.locator('.starter-library').getByText(/USDA SR28 · 352 kcal/)).toBeVisible();
+});

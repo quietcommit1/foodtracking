@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Search, Plus, Star } from 'lucide-react';
 import Modal from './Modal';
 import StarterLibrary from './StarterLibrary';
-import { catalogDraft, catalogNotice, matchesFood } from '../catalog';
+import { catalogDraft, matchesFood } from '../catalog';
 import { base, op, useStore } from '../store';
 import { fmt, makeSnapshot, scale, unknown } from '../nutrition';
 import { meals, type Food, type Meal, type Entry } from '../types';
@@ -279,12 +279,14 @@ export default function AddFood({
           (selected || entry) && (
             <div className="portion-box">
               <strong>{selected?.name ?? entry?.name}</strong>
-              {selected?.source_id?.startsWith('everyday-starter-v1:') && (
-                <p className="notice">
-                  {catalogNotice} Adding this food confirms the estimate and saves a private copy to
-                  your library.
-                </p>
-              )}
+              {selected?.source_id &&
+                (selected.source_id.startsWith('everyday-starter-v1:') ||
+                  selected.source_id.startsWith('usda-sr28:')) && (
+                  <p className="notice">
+                    {selected.notes} Adding this food confirms the nutrition and saves a private
+                    copy to your library.
+                  </p>
+                )}
               {selected && (
                 <p className="small">
                   Per {selected.basis_amount} {selected.basis}: {fmt(selected.nutrition.calories)}{' '}

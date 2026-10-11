@@ -181,12 +181,31 @@ export async function lookupBarcode(code: string) {
   if (error) throw error;
   if (food) return { status: 'saved', food };
   const result = await supabase.functions.invoke('food-lookup', { body: { barcode: code } });
-  if (result.error)
-    return {
+  if (result.error) {
+    const response = (result.error as { context?: Response }).context;
+    let details: { message?: string } = result.data ?? {};
+    if (response && typeof response.json === 'function') {
+      try {
+        details = await response.clone().json();
+      } catch {
+        /* preserve a readable fallback */
+      }
+    }
+    const message =
+      response?.status === 404
+        ? 'External barcode lookup has not been deployed for this account’s Supabase project. Saved products still work. Deploy food-lookup to enable automatic nutrition lookup.'
+        : response?.status === 401
+          ? 'Your lookup session was rejected. Sign in again. If this persists, check the lookup service authentication configuration.'
+          : (details.message ??
+            'External lookup could not be reached. Check your connection; this does not mean the product is missing.');
+    return { status: 'unavailable', message };
+  }
+  return (
+    result.data ?? {
       status: 'unavailable',
-      message: result.data?.message ?? 'Lookup unavailable. You can enter nutrition manually.',
-    };
-  return result.data;
+      message: 'Lookup returned an empty response. Please retry.',
+    }
+  );
 }
 export async function serverBackup(): Promise<Data> {
   if (!supabase || !owner) throw Error('Supabase is not connected');

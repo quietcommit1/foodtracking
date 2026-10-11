@@ -34,7 +34,7 @@ import Auth from './components/Auth';
 import FoodForm from './components/FoodForm';
 import AddFood from './components/AddFood';
 import StarterLibrary from './components/StarterLibrary';
-import { catalogDraft, catalogNotice, matchesFood } from './catalog';
+import { catalogDraft, catalogNoticeFor, matchesFood, librarySourceLabel } from './catalog';
 import RecipeForm from './components/RecipeForm';
 import Settings from './components/Settings';
 import History from './components/History';
@@ -432,7 +432,7 @@ export default function App() {
                           ? 'Open Food Facts'
                           : f.source === 'recipe'
                             ? 'Homemade recipe'
-                            : 'User-entered estimate'}
+                            : librarySourceLabel(f)}
                       </p>
                       <div className="food-calories">
                         <strong>{fmt(f.nutrition.calories)}</strong> kcal{' '}
@@ -484,7 +484,10 @@ export default function App() {
                           target="_blank"
                           rel="noreferrer"
                         >
-                          Source: Open Food Facts · ODbL ↗
+                          {f.source === 'openfoodfacts'
+                            ? 'Source: Open Food Facts · ODbL'
+                            : librarySourceLabel(f)}{' '}
+                          ↗
                         </a>
                       )}
                     </article>
@@ -502,7 +505,7 @@ export default function App() {
                     requireAuth({
                       kind: 'food',
                       food: catalogDraft(food, base()),
-                      notice: catalogNotice,
+                      notice: catalogNoticeFor(food),
                     });
                   }}
                 />

@@ -29,3 +29,26 @@ describe('starter food library', () => {
     expect((food.source_data as any).nutrition.protein).toBe(52);
   });
 });
+
+it('loads 8,789 distinct USDA references with original macro values and source provenance', async () => {
+  const { loadReferenceCatalog } = await import('../src/catalog');
+  const reference = await loadReferenceCatalog();
+  expect(reference).toHaveLength(8789);
+  expect(new Set(reference.map((food) => food.id)).size).toBe(8789);
+  const butter = reference.find((food) => food.id === 'usda-sr28:01001')!;
+  expect(butter.nutrition).toEqual({
+    calories: 717,
+    protein: 0.85,
+    carbs: 0.06,
+    fat: 81.11,
+    fibre: 0,
+  });
+  const food = catalogDraft(butter, { id: 'f', user_id: 'u' });
+  expect(food.source_id).toBe('usda-sr28:01001');
+  expect(food.notes).toMatch(/historical reference/);
+  expect(food.source_url).toContain('fdc.nal.usda.gov');
+  expect(searchCatalog('lentils raw', reference).length).toBeGreaterThan(0);
+  for (const food of reference)
+    for (const value of Object.values(food.nutrition))
+      expect(value === null || (Number.isFinite(value) && value >= 0)).toBe(true);
+});

@@ -51,14 +51,15 @@ Deno.serve(async (req: Request) => {
       return reply(
         {
           status: 'unavailable',
-          message: 'Lookup contact is not configured. Manual entry is available.',
+          message:
+            'External barcode lookup is not configured yet. Configure the lookup contact email in Supabase; saved products still work.',
         },
         503,
       );
     const staging = Deno.env.get('OFF_STAGING') === 'true';
     const host = staging ? 'world.openfoodfacts.net' : 'world.openfoodfacts.org';
     const response = await fetch(
-      `https://${host}/api/v3.6/product/${code}.json?fields=code,product_name,brands,nutrition,serving_size,quantity`,
+      `https://${host}/api/v2/product/${code}.json?fields=code,product_name,product_name_en,brands,nutrition,nutriments,nutrition_data_per,serving_size,serving_quantity,serving_quantity_unit,quantity`,
       {
         headers: {
           'User-Agent': `EverydayDiary/1.0 (${contact})`,
@@ -80,7 +81,8 @@ Deno.serve(async (req: Request) => {
         503,
       );
     const result = await response.json();
-    if (!result.product) return reply({ status: 'not_found', barcode: code });
+    if (result.status === 0 || !result.product)
+      return reply({ status: 'not_found', barcode: code });
     return reply({
       status: 'found',
       barcode: code,

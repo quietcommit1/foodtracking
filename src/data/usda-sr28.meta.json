@@ -1,0 +1,22 @@
+{
+  "source": "USDA National Nutrient Database for Standard Reference, Release 28 (2015, revised 2016)",
+  "license": "US federal government food-composition data, public domain",
+  "official_url": "https://fdc.nal.usda.gov/download-datasets",
+  "mirror": "https://github.com/alyssaq/usda-sqlite",
+  "mirror_commit": "1e457b599af101ce463a195867574eba16c81acb",
+  "food_count": 8789,
+  "basis": "per 100 g edible portion, as described in food name",
+  "columns": [
+    "NDB ID",
+    "Description",
+    "kcal (208)",
+    "protein g (203)",
+    "carbohydrate by difference g (205)",
+    "total lipid g (204)",
+    "dietary fibre g (291)"
+  ],
+  "source_sha256": {
+    "FOOD_DES.txt": "bb2047218cdad1d830da69e760386409fde3b7afabceae604c5479f280d4fa2e",
+    "NUT_DATA.txt": "506c9ee39a276ac8f53565d270597e430944ec3363adb53a91cc6ee8c061fac5"
+  }
+}

@@ -6,6 +6,8 @@ async function backend(page: Page) {
   const db = emptyData();
   const seen = new Set();
   let external = 0;
+  let product: unknown = null;
+  let lookupStatus = 200;
   let fail = false;
   await page.route('https://example.supabase.co/**', async (route) => {
     const request = route.request();
@@ -30,7 +32,20 @@ async function backend(page: Page) {
       };
     } else if (url.pathname === '/functions/v1/food-lookup') {
       external++;
-      payload = { status: 'not_found', barcode: request.postDataJSON().barcode };
+      status = lookupStatus;
+      payload =
+        status === 404
+          ? { code: 'NOT_FOUND', message: 'Requested function was not found' }
+          : product
+            ? {
+                status: 'found',
+                product,
+                barcode: request.postDataJSON().barcode,
+                source_id: request.postDataJSON().barcode,
+                source_url:
+                  'https://world.openfoodfacts.org/product/' + request.postDataJSON().barcode,
+              }
+            : { status: 'not_found', barcode: request.postDataJSON().barcode };
     } else if (url.pathname.includes('/rpc/')) {
       const name = url.pathname.split('/').pop();
       const body = request.postDataJSON();
@@ -63,7 +78,13 @@ async function backend(page: Page) {
     } else payload = { id: uid, email: 'personal@example.com' };
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
   });
-  return { db, external: () => external, setFailed: (value: boolean) => (fail = value) };
+  return {
+    db,
+    external: () => external,
+    setFailed: (value: boolean) => (fail = value),
+    setProduct: (value: unknown) => (product = value),
+    setLookupStatus: (value: number) => (lookupStatus = value),
+  };
 }
 async function login(page: Page, address = 'http://127.0.0.1:5174') {
   await page.goto(address);
@@ -187,7 +208,7 @@ test('starter search logs fractional soya chunks and saves a reusable private fo
     .getByRole('dialog')
     .getByRole('button', { name: /^Soya chunks — dry/ })
     .click();
-  await expect(page.getByText(/Adding this food confirms the estimate/)).toBeVisible();
+  await expect(page.getByText(/Adding this food confirms the nutrition/)).toBeVisible();
   await page.getByLabel('Quantity', { exact: true }).fill('25');
   await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
   await expect.poll(() => api.db.diary_entries.length).toBe(1);
@@ -226,4 +247,46 @@ test('Foods starter search opens nutrition review and saves without logging', as
   expect(api.db.foods[0].nutrition.protein).toBe(50);
   expect((api.db.foods[0].source_data as any).nutrition.protein).toBe(52);
   expect(api.db.diary_entries).toHaveLength(0);
+});
+
+test('scanned OFF legacy product fills all macros, saves and rescans without external lookup', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  api.setProduct({
+    product_name: 'Labelled soya chunks',
+    brands: 'Fixture brand',
+    nutriments: {
+      'energy-kcal_100g': 345,
+      proteins_100g: 52,
+      carbohydrates_100g: 33,
+      fat_100g: 0.5,
+    },
+  });
+  await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
+  await page.getByLabel('Or enter barcode').fill('8901234567890');
+  await page.getByRole('button', { name: 'Look up product' }).click();
+  await expect(page.getByLabel('Calories (kcal)', { exact: true })).toHaveValue('345');
+  await expect(page.getByLabel('Protein (g)', { exact: true })).toHaveValue('52');
+  await expect(page.getByLabel('Carbohydrates (g)', { exact: true })).toHaveValue('33');
+  await expect(page.getByLabel('Fat (g)', { exact: true })).toHaveValue('0.5');
+  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await expect.poll(() => api.db.foods.length).toBe(1);
+  await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
+  await page.getByLabel('Or enter barcode').fill('8901234567890');
+  await page.getByRole('button', { name: 'Look up product' }).click();
+  await expect(page.getByRole('heading', { name: 'Add to your diary' })).toBeVisible();
+  expect(api.external()).toBe(1);
+});
+
+test('undeployed lookup service is distinguished from a missing product', async ({ page }) => {
+  const api = await backend(page);
+  await login(page);
+  api.setLookupStatus(404);
+  await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
+  await page.getByLabel('Or enter barcode').fill('8901234567890');
+  await page.getByRole('button', { name: 'Look up product' }).click();
+  await expect(page.getByText(/External barcode lookup has not been deployed/)).toBeVisible();
+  await expect(page.getByLabel('Barcode (optional)', { exact: true })).toHaveValue('8901234567890');
 });

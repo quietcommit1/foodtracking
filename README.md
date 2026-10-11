@@ -127,10 +127,26 @@ Application source is MIT licensed; see `LICENSE`. Dependency and data-source li
 
 Create **two separate disposable confirmed test accounts**, then set `SUPABASE_TEST_EMAIL_A`, `SUPABASE_TEST_PASSWORD_A`, `SUPABASE_TEST_EMAIL_B`, and `SUPABASE_TEST_PASSWORD_B` in ignored `.env.local` alongside the public project settings. Run `npm run test:hosted`. The script uses their normal authenticated public clients, verifies isolation/child ownership/duplicates/idempotency/history and Edge caller authentication, and cleans up only its own fixture IDs. It never requires a service-role key and doesn't call OFF (the barcode is pre-saved). Run against a test project; the fixed all-zero test barcode must be unused. Credential values are never printed. This command is **not run** without those credentials.
 
-## Starter food library
+## Searchable food library
 
 Foods and Add Food include a bundled, offline-searchable starter catalog of 68 common ingredients and everyday foods, including dry soya chunks, dal ingredients, rice, atta, paneer, vegetables, fruit, oils and nuts. English, common Indian names and selected Hindi aliases are searchable. It is a limited catalog, not an internet-wide nutrition database.
 
 All catalog nutrition is **rounded sample estimates**, not verified brand labels or authoritative food composition data. Calories, protein, carbohydrates and fat are supplied per **100 g of the named food state**. Fibre remains unknown. The generic dry soya-chunk estimate is 345 kcal, 52 g protein, 33 g carbs and 0.5 g fat per 100 g; confirm your own package, and never apply dry values to hydrated weight. Foods with preparation/brand differences should be corrected before saving. Household measures, weight/volume conversions and hydrated-soya yield are not invented. Use recipes for dishes such as dal or sabzi, with all ingredients including oil and final cooked weight.
 
 Review a starter item in Foods and save it, or select it in Add Food and review the estimate notice and macros before logging. Logging saves the private library copy and diary snapshot together through the existing account-scoped offline queue and transactional Supabase RPC. The reference estimate remains in `source_data` when you make private corrections. Starter items are not inserted into your diary automatically. No new database migration is needed. Scanning and Open Food Facts lookup remain available for brand-specific packaged products.
+
+### USDA reference library
+
+The library now also includes **8,789 USDA SR28 food records**, for **8,857 total reference/starter entries**. It is not every food on the internet: SR28 is a historical US reference dataset (2015/2016), and packaged brands, regional dishes and newer formulations may differ. USDA values are separate from the labelled Indian starter estimates. Missing nutrients remain `null`. The source's exact food description and NDB identifier are retained, along with the original macro values in `source_data` after private corrections.
+
+The 812 KB compact reference data loads in a separate frontend chunk and is precached by the PWA. Search is local with multiword matching and 12-result pagination. Only selected foods are saved to the user's Supabase account; the full reference database is **not** uploaded to Supabase. Homemade dishes require the user's recipe and actual ingredients/finished weight rather than assuming a universal serving. USDA legacy brand references are not current product-label verification and have no inferred barcodes.
+
+`src/data/usda-sr28.meta.json` records the pinned public mirror, source hashes, nutrient IDs and format. To regenerate, obtain `FOOD_DES.txt` and `NUT_DATA.txt` from USDA SR28 ASCII data or the recorded mirror commit, then run `python3 scripts/build-usda-catalog.py /path/to/files`. The downloaded source files are not included in the app.
+
+### Barcode lookup troubleshooting
+
+The camera reads a barcode; the nutrition lookup is a separate authenticated Supabase Edge Function. **Deploying the GitHub Pages website does not deploy that function.** If a scan asks for manual nutrition, read the notice above the form: a genuine OFF miss, undeployed function, rejected session, unconfigured contact, and unavailable network are distinct cases. Saved products never need OFF again.
+
+The corrected function uses OFF's documented product v2 endpoint and requests `nutriments` as well as newer `nutrition`, preserving energy/protein/carbohydrate/fat/fibre values instead of requesting only the new schema. The adapter accepts finite numeric strings, retains genuine zero and unknown values, and reads explicit serving/liquid bases. It never derives nutrition from a barcode. External values must still be reviewed.
+
+Follow [BARCODE_SETUP.md](BARCODE_SETUP.md) to deploy the function to the **same project configured in GitHub Actions variables**. For the live site this was `umwcdvonjlyqohgrvqnv` at the last check; the cloud's older environment variables referenced a different project. Check your own GitHub setting before deploying. `OFF_STAGING` must be **false for actual packaged products**; staging uses a test database. Real phone camera testing was unavailable; use the checklist above. Browser tests verify decoded fixture formats and the populated lookup/re-scan flow against an explicit synthetic backend, not a real OFF match.

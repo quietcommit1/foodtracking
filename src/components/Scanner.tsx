@@ -118,6 +118,7 @@ export default function Scanner({
     };
   }, [device, active]);
   function submit() {
+    if (locked.current) return;
     try {
       const code = normalizeBarcode(manual, format);
       locked.current = true;

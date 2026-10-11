@@ -6,6 +6,7 @@ export type CatalogFood = {
   aliases: string;
   state: Food['state'];
   nutrition: Nutrition;
+  kind?: 'usda';
 };
 // Rounded starter estimates, NOT verified package labels or authoritative reference data.
 // All values are per 100 g of the specified food state. No household/volume conversions.
@@ -162,14 +163,14 @@ export const catalog: CatalogFood[] = rows.map(
 );
 export const catalogNotice =
   'Starter estimate, not verified nutrition. Review against your package or recipe before saving. Values are per 100 g of the named raw/dry/cooked food, not per bowl or piece. Brand and cooking differences can be substantial. Fibre is unknown.';
-export function searchCatalog(query: string): CatalogFood[] {
+export function searchCatalog(query: string, foods: CatalogFood[] = catalog): CatalogFood[] {
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  return catalog.filter((f) =>
+  return foods.filter((f) =>
     words.every((word) => `${f.name} ${f.aliases}`.toLocaleLowerCase().includes(word)),
   );
 }
 export function catalogSourceId(id: string) {
-  return `everyday-starter-v1:${id}`;
+  return id.startsWith('usda-sr28:') ? id : `everyday-starter-v1:${id}`;
 }
 export function catalogDraft(item: CatalogFood, identity: { id: string; user_id: string }): Food {
   return {
@@ -182,16 +183,16 @@ export function catalogDraft(item: CatalogFood, identity: { id: string; user_id:
     serving_size: null,
     serving_unit: 'g',
     nutrition: { ...item.nutrition },
-    notes: catalogNotice,
+    notes: catalogNoticeFor(item),
     source: 'manual',
     source_id: catalogSourceId(item.id),
-    source_url: null,
+    source_url: item.kind === 'usda' ? 'https://fdc.nal.usda.gov/download-datasets' : null,
     source_data: {
-      kind: 'starter-estimate',
+      kind: item.kind === 'usda' ? 'usda-sr28' : 'starter-estimate',
       version: 1,
       catalog_id: item.id,
       nutrition: { ...item.nutrition },
-      notice: catalogNotice,
+      notice: catalogNoticeFor(item),
     },
     state: item.state,
   };
@@ -207,4 +208,43 @@ export function matchesFood(food: Food, query: string): boolean {
     .split(/\s+/)
     .filter(Boolean)
     .every((word) => text.includes(word));
+}
+
+export function catalogNoticeFor(item: CatalogFood): string {
+  return item.kind === 'usda'
+    ? 'USDA SR28 historical reference (2015/2016), per 100 g edible portion of the food described. Match the exact preparation and check current package labels. Missing values remain unknown. No universal serving or volume conversion is assumed.'
+    : catalogNotice;
+}
+let referencePromise: Promise<CatalogFood[]> | undefined;
+export function loadReferenceCatalog(): Promise<CatalogFood[]> {
+  return (referencePromise ??= import('./data/usda-sr28.json')
+    .then((module) =>
+      module.default.map((row) => ({
+        id: `usda-sr28:${row[0]}`,
+        name: String(row[1]),
+        aliases: '',
+        kind: 'usda' as const,
+        state: /\b(raw|uncooked|dry|dried)\b/i.test(String(row[1]))
+          ? ('raw' as const)
+          : /\b(cooked|boiled|roasted|fried|baked|steamed)\b/i.test(String(row[1]))
+            ? ('cooked' as const)
+            : ('packaged' as const),
+        nutrition: {
+          calories: row[2],
+          protein: row[3],
+          carbs: row[4],
+          fat: row[5],
+          fibre: row[6],
+        } as Nutrition,
+      })),
+    )
+    .catch((error) => {
+      referencePromise = undefined;
+      throw error;
+    }));
+}
+export function librarySourceLabel(food: Food): string {
+  return (food.source_data as { kind?: string } | null)?.kind === 'usda-sr28'
+    ? 'USDA SR28 reference'
+    : 'User-entered estimate';
 }

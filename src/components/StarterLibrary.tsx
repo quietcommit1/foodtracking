@@ -1,5 +1,11 @@
-import { useState } from 'react';
-import { catalogSourceId, searchCatalog, type CatalogFood } from '../catalog';
+import { useEffect, useState } from 'react';
+import {
+  catalog,
+  catalogSourceId,
+  searchCatalog,
+  loadReferenceCatalog,
+  type CatalogFood,
+} from '../catalog';
 import { fmt } from '../nutrition';
 import type { Food } from '../types';
 export default function StarterLibrary({
@@ -12,24 +18,61 @@ export default function StarterLibrary({
   onChoose: (food: CatalogFood) => void;
 }) {
   const [limit, setLimit] = useState(12);
-  const matches = searchCatalog(search).filter(
+  const [reference, setReference] = useState<CatalogFood[]>([]);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setError('');
+    loadReferenceCatalog()
+      .then((foods) => {
+        if (active) setReference(foods);
+      })
+      .catch(() => {
+        if (active)
+          setError(
+            'Reference library could not load. Reconnect and retry. Starter foods remain available.',
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
+  useEffect(() => setLimit(12), [search]);
+  const matches = searchCatalog(search, [...catalog, ...reference]).filter(
     (item) => !saved.some((f) => f.source_id === catalogSourceId(item.id)),
   );
-  const shown = search ? matches : matches.slice(0, limit);
+  const shown = matches.slice(0, limit);
   return (
-    <section className="starter-library" aria-label="Starter food library">
-      <h2>Starter food library</h2>
+    <section className="starter-library" aria-label="Reference food library">
+      <h2>Food reference library</h2>
       <p className="muted small">
-        Common foods with estimated macros per 100 g. Review before saving; these are not verified
-        labels. Dry and cooked weights differ. For dal, sabzi and other dishes, build a recipe
-        including oil.
+        {catalog.length + reference.length} searchable foods · USDA SR28 historical reference data
+        plus labelled Indian starter estimates. All values are per 100 g. Match the preparation and
+        review before saving. Use recipes for homemade dishes including oil.
       </p>
+      {!reference.length && !error && (
+        <p role="status" className="muted">
+          Loading USDA reference foods…
+        </p>
+      )}
+      {error && (
+        <p role="alert">
+          {error}{' '}
+          <button type="button" className="text-button" onClick={() => setAttempt(attempt + 1)}>
+            Retry library
+          </button>
+        </p>
+      )}
       <div className="food-picker">
         {shown.map((food) => (
           <button type="button" key={food.id} onClick={() => onChoose(food)}>
             <span>
               {food.name}
-              <small>Estimate · {fmt(food.nutrition.calories)} kcal / 100 g</small>
+              <small>
+                {food.kind === 'usda' ? 'USDA SR28' : 'Estimate'} · {fmt(food.nutrition.calories)}{' '}
+                kcal / 100 g
+              </small>
               <small>
                 Protein {fmt(food.nutrition.protein)} g · Carbs {fmt(food.nutrition.carbs)} g · Fat{' '}
                 {fmt(food.nutrition.fat)} g
@@ -41,10 +84,10 @@ export default function StarterLibrary({
       </div>
       {!matches.length && (
         <p className="muted">
-          No starter matches. Try another name, scan a package or create a custom food.
+          No reference matches. Try another name, scan a package or create a custom food.
         </p>
       )}
-      {!search && matches.length > shown.length && (
+      {matches.length > shown.length && (
         <button type="button" className="secondary" onClick={() => setLimit(limit + 12)}>
           Show more foods ({matches.length - shown.length} more)
         </button>
