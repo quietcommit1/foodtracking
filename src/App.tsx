@@ -124,14 +124,20 @@ export default function App() {
       }
       const result = await lookupBarcode(barcode);
       if (result.status === 'saved') setDialog({ kind: 'add', food: result.food });
-      else if (result.status === 'found')
+      else if (result.status === 'found') {
+        const food = externalFood(result, base());
+        const missing = nutrientKeys.slice(0, 4).filter((key) => food.nutrition[key] === null);
         setDialog({
           kind: 'food',
-          food: externalFood(result, base()),
+          food,
           notice:
-            'External result — review every nutrient and confirm whether the basis is 100 g or 100 ml before saving.',
+            missing.length === 4
+              ? 'Product record found, but Open Food Facts has no nutrition values for this barcode. Enter the package label once and save it; future scans will use your private saved values.'
+              : missing.length
+                ? 'Product found with incomplete nutrition. Review the supplied values and fill only missing values printed on the package.'
+                : 'External result — review every nutrient and confirm the nutrition basis before saving.',
         });
-      else
+      } else
         setDialog({
           kind: 'food',
           barcode,

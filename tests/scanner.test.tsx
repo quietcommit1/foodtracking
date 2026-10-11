@@ -44,3 +44,59 @@ it('stops tracks even if camera permission finishes after unmount', async () => 
   resolve({ getTracks: () => [{ stop: stopped }] });
   await waitFor(() => expect(stopped).toHaveBeenCalledOnce());
 });
+
+it('photo fallback decodes locally and reports one barcode', async () => {
+  Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
+  const { readBarcodes } = await import('zxing-wasm/reader');
+  vi.mocked(readBarcodes).mockResolvedValueOnce([
+    { text: '8906133020187', format: 'EAN13' },
+  ] as any);
+  const onCode = vi.fn();
+  render(<Scanner onCode={onCode} onClose={vi.fn()} />);
+  const file = new File([new Uint8Array([1, 2, 3])], 'barcode.jpg', { type: 'image/jpeg' });
+  Object.defineProperty(file, 'arrayBuffer', {
+    value: async () => new Uint8Array([1, 2, 3]).buffer,
+  });
+  fireEvent.change(screen.getByLabelText('Scan from a barcode photo'), {
+    target: { files: [file] },
+  });
+  await waitFor(() => expect(onCode).toHaveBeenCalledExactlyOnceWith('8906133020187'));
+  expect(vi.mocked(readBarcodes).mock.lastCall?.[0]).toBeInstanceOf(Uint8Array);
+});
+
+it('camera enumeration failure does not block decoding or track cleanup', async () => {
+  Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+  const draw = vi.fn();
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({
+    drawImage: draw,
+    getImageData: vi
+      .fn()
+      .mockReturnValue({ width: 1920, height: 594, data: new Uint8ClampedArray() }),
+  } as any);
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(2);
+  vi.spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get').mockReturnValue(1920);
+  vi.spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get').mockReturnValue(1080);
+  const stop = vi.fn();
+  const getUserMedia = vi
+    .fn()
+    .mockResolvedValue({ getTracks: () => [{ stop }], getVideoTracks: () => [] });
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia, enumerateDevices: vi.fn().mockRejectedValue(Error('unsupported')) },
+    configurable: true,
+  });
+  const { readBarcodes } = await import('zxing-wasm/reader');
+  vi.mocked(readBarcodes).mockResolvedValueOnce([
+    { text: '8906133020187', format: 'EAN13' },
+  ] as any);
+  const onCode = vi.fn();
+  const { unmount } = render(<Scanner onCode={onCode} onClose={vi.fn()} />);
+  await waitFor(() => expect(onCode).toHaveBeenCalledExactlyOnceWith('8906133020187'));
+  expect(getUserMedia.mock.lastCall?.[0].video).toMatchObject({
+    width: { ideal: 1920 },
+    facingMode: { ideal: 'environment' },
+  });
+  expect(draw).toHaveBeenCalled();
+  expect(stop).toHaveBeenCalled();
+  unmount();
+});

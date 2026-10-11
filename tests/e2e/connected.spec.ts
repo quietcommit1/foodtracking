@@ -1,5 +1,6 @@
 // Integration UI tests use an explicit fake Supabase HTTP backend, never a hosted project.
 import { test, expect, type Page } from '@playwright/test';
+import bwip from 'bwip-js/node';
 import { emptyData, type Data } from '../../src/types';
 const uid = '11111111-1111-4111-8111-111111111111';
 async function backend(page: Page) {
@@ -186,6 +187,8 @@ test('production PWA survives offline reload and syncs a cached custom product o
   await page.getByLabel('Calories (kcal)', { exact: true }).fill('90');
   await page.getByRole('button', { name: 'Save to my foods' }).click();
   await expect(page.getByText('Offline homemade dal', { exact: true })).toBeVisible();
+  // The visible card is optimistic; the closed form confirms the IndexedDB write completed.
+  await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.reload();
   await expect(page.getByRole('button', { name: /Pending/ })).toBeVisible();
   await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
@@ -289,4 +292,35 @@ test('undeployed lookup service is distinguished from a missing product', async 
   await page.getByRole('button', { name: 'Look up product' }).click();
   await expect(page.getByText(/External barcode lookup has not been deployed/)).toBeVisible();
   await expect(page.getByLabel('Barcode (optional)', { exact: true })).toHaveValue('8901234567890');
+});
+
+test('real barcode photo decodes locally and explains an empty OFF nutrition record', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  api.setProduct({ code: '8906133020187' });
+  let sent: unknown;
+  page.on('request', (request) => {
+    if (request.url().includes('/functions/v1/food-lookup')) sent = request.postDataJSON();
+  });
+  await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
+  const buffer = await bwip.toBuffer({
+    bcid: 'ean13',
+    text: '890613302018',
+    scale: 3,
+    height: 30,
+    paddingwidth: 30,
+    paddingheight: 20,
+    backgroundcolor: 'FFFFFF',
+  });
+  await page
+    .getByLabel('Scan from a barcode photo')
+    .setInputFiles({ name: 'nakpro-barcode-fixture.png', mimeType: 'image/png', buffer });
+  await expect(
+    page.getByText(/Product record found, but Open Food Facts has no nutrition values/),
+  ).toBeVisible();
+  await expect(page.getByLabel('Barcode (optional)', { exact: true })).toHaveValue('8906133020187');
+  await expect(page.getByLabel('Protein (g)', { exact: true })).toHaveValue('');
+  expect(sent).toEqual({ barcode: '8906133020187' });
 });

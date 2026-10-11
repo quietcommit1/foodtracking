@@ -38,3 +38,11 @@ The function deployment reads `verify_jwt=false` from the committed configuratio
 - **Camera permission/decoder error:** allow the camera over HTTPS, try the rear camera or manual entry. Hold the full barcode in focus with good light.
 
 The website has no automatic way to obtain Supabase administrator access from a publishable key. Server deployment still needs your project-owner Dashboard/CLI session.
+
+## Nakpro barcode investigated
+
+On 2026-10-11, barcode **8906133020187** passed the EAN-13 check digit and returned a found record from both Open Food Facts v2 and v3.6. Neither response contained a product name, brand or structured nutrition/macros. OFF has a nutrition-label photo, but the API cannot populate macros from an image. The application does not guess label values or run paid/AI image recognition. Enter the exact package values once and save them privately; subsequent scans use that saved record. Different Nakpro variants must not share assumed nutrition.
+
+At that check, the live project's `food-lookup` endpoint also returned HTTP 404, `Requested function was not found`. Deploy the function using the steps above. Fixing its deployment enables other products with structured OFF nutrition; it does not fill absent source data for this barcode.
+
+For iPhone Safari, the scanner requests a high-resolution rear camera, attempts continuous focus only when supported, and alternates centre-strip/full-frame decoding. A locally decoded **Scan from a barcode photo** option provides a sharper-image fallback. Optional flashlight controls appear only when the camera reports support. Camera device enumeration errors no longer stop decoding. Real iPhone camera verification remains pending; test on your actual package in good light, keeping all bars and white margins visible.
