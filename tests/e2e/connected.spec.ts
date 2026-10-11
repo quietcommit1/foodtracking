@@ -175,3 +175,55 @@ test('production PWA survives offline reload and syncs a cached custom product o
   await expect(page.getByRole('button', { name: /Synced/ })).toBeVisible();
   expect(api.db.foods[0].name).toBe('Offline homemade dal');
 });
+
+test('starter search logs fractional soya chunks and saves a reusable private food', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByLabel('Search saved foods').fill('soya chunks');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  await expect(page.getByText(/Adding this food confirms the estimate/)).toBeVisible();
+  await page.getByLabel('Quantity', { exact: true }).fill('25');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
+  await expect.poll(() => api.db.diary_entries.length).toBe(1);
+  expect(api.db.foods.length).toBe(1);
+  expect(api.db.foods[0].user_id).toBe(uid);
+  expect(api.db.diary_entries[0].food_id).toBe(api.db.foods[0].id);
+  expect(api.db.diary_entries[0].nutrition).toEqual({
+    calories: 86.25,
+    protein: 13,
+    carbs: 8.25,
+    fat: 0.125,
+    fibre: null,
+  });
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByLabel('Search saved foods').fill('soya chunks');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
+  await expect.poll(() => api.db.diary_entries.length).toBe(2);
+  expect(api.db.foods.length).toBe(1);
+  expect(api.external()).toBe(0);
+});
+
+test('Foods starter search opens nutrition review and saves without logging', async ({ page }) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+  await page.getByLabel('Search your food library').fill('soya chunks');
+  await page.getByRole('button', { name: /Soya chunks — dry/ }).click();
+  await expect(page.getByLabel('Protein (g)', { exact: true })).toHaveValue('52');
+  await page.getByLabel('Protein (g)', { exact: true }).fill('50');
+  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await expect.poll(() => api.db.foods.length).toBe(1);
+  expect(api.db.foods[0].nutrition.protein).toBe(50);
+  expect((api.db.foods[0].source_data as any).nutrition.protein).toBe(52);
+  expect(api.db.diary_entries).toHaveLength(0);
+});

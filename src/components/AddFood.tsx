@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Search, Plus, Star } from 'lucide-react';
 import Modal from './Modal';
+import StarterLibrary from './StarterLibrary';
+import { catalogDraft, catalogNotice, matchesFood } from '../catalog';
 import { base, op, useStore } from '../store';
 import { fmt, makeSnapshot, scale, unknown } from '../nutrition';
 import { meals, type Food, type Meal, type Entry } from '../types';
@@ -46,9 +48,7 @@ export default function AddFood({
   const recentIds = [...data.diary_entries]
     .sort((a, b) => (b.updated_at ?? b.date).localeCompare(a.updated_at ?? a.date))
     .map((e) => e.food_id);
-  let foods = data.foods.filter((f) =>
-    `${f.name} ${f.brand} ${f.barcode ?? ''}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  let foods = data.foods.filter((f) => matchesFood(f, search));
   if (!search && tab === 'favourites') foods = foods.filter((f) => favouriteIds.includes(f.id));
   if (!search && tab === 'recent')
     foods.sort((a, b) => {
@@ -118,6 +118,7 @@ export default function AddFood({
       const ops = [op('diary_entries', { ...(entry ?? base()), ...snapshot, date: day, meal })];
       if (zeroDay) ops.push(op('diary_days', { ...zeroDay, zero_intake: false }));
       if (selected) {
+        if (!data.foods.some((food) => food.id === selected.id)) ops.unshift(op('foods', selected));
         ops.push(
           op('profiles', {
             ...(profile ?? { ...base(), theme: 'system', last_portions: {} }),
@@ -169,7 +170,7 @@ export default function AddFood({
               />
             </div>
             <div className="chips">
-              {['recent', 'favourites', 'all'].map((t) => (
+              {['recent', 'favourites', 'all', 'library'].map((t) => (
                 <button
                   type="button"
                   key={t}
@@ -213,10 +214,20 @@ export default function AddFood({
                     {favouriteIds.includes(f.id) ? <Star size={17} /> : <Plus size={17} />}
                   </button>
                 ))}
-                {!foods.length && (
+                {!foods.length && tab !== 'library' && (
                   <p className="muted">No saved foods yet. Add your own or scan a package.</p>
                 )}
               </div>
+            )}
+            {!quick && (search || tab === 'library' || !foods.length) && (
+              <StarterLibrary
+                search={search}
+                saved={data.foods}
+                onChoose={(item) => {
+                  select(catalogDraft(item, base()));
+                  setSaved('');
+                }}
+              />
             )}
             <button type="button" className="text-button" onClick={onCreate}>
               + Create a custom food
@@ -268,6 +279,19 @@ export default function AddFood({
           (selected || entry) && (
             <div className="portion-box">
               <strong>{selected?.name ?? entry?.name}</strong>
+              {selected?.source_id?.startsWith('everyday-starter-v1:') && (
+                <p className="notice">
+                  {catalogNotice} Adding this food confirms the estimate and saves a private copy to
+                  your library.
+                </p>
+              )}
+              {selected && (
+                <p className="small">
+                  Per {selected.basis_amount} {selected.basis}: {fmt(selected.nutrition.calories)}{' '}
+                  kcal · Protein {fmt(selected.nutrition.protein)} g · Carbs{' '}
+                  {fmt(selected.nutrition.carbs)} g · Fat {fmt(selected.nutrition.fat)} g
+                </p>
+              )}
               <div className="form-grid">
                 <label>
                   Quantity

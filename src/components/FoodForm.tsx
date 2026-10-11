@@ -283,7 +283,7 @@ export default function FoodForm({
           </button>
         )}
         <button className="primary wide" type="submit">
-          {food ? 'Save changes' : 'Save to my foods'}
+          {food && data.foods.some((f) => f.id === food.id) ? 'Save changes' : 'Save to my foods'}
         </button>
         <p className="small muted">
           {draft.source === 'manual'

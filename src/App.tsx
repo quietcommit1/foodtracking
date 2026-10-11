@@ -33,6 +33,8 @@ import Dashboard from './components/Dashboard';
 import Auth from './components/Auth';
 import FoodForm from './components/FoodForm';
 import AddFood from './components/AddFood';
+import StarterLibrary from './components/StarterLibrary';
+import { catalogDraft, catalogNotice, matchesFood } from './catalog';
 import RecipeForm from './components/RecipeForm';
 import Settings from './components/Settings';
 import History from './components/History';
@@ -399,11 +401,7 @@ export default function App() {
               </div>
               <div className="library-grid">
                 {data.foods
-                  .filter((f) =>
-                    `${f.name} ${f.brand} ${f.barcode}`
-                      .toLowerCase()
-                      .includes(search.toLowerCase()),
-                  )
+                  .filter((f) => matchesFood(f, search))
                   .filter((f) =>
                     filter === 'Favourites'
                       ? data.favourites.some((x) => x.food_id === f.id)
@@ -492,6 +490,23 @@ export default function App() {
                     </article>
                   ))}
               </div>
+              {filter === 'All foods' && (
+                <StarterLibrary
+                  search={search}
+                  saved={data.foods}
+                  onChoose={(food) => {
+                    if (!user) {
+                      setDialog({ kind: 'auth' });
+                      return;
+                    }
+                    requireAuth({
+                      kind: 'food',
+                      food: catalogDraft(food, base()),
+                      notice: catalogNotice,
+                    });
+                  }}
+                />
+              )}
               {!data.foods.length && (
                 <div className="empty-state">
                   <Utensils size={36} />
