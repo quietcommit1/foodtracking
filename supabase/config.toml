@@ -1,0 +1,3 @@
+[functions.food-lookup]
+verify_jwt = false
+# The handler verifies the bearer token with Auth.getUser (supports publishable keys).
