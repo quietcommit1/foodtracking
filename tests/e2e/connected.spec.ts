@@ -2,6 +2,15 @@
 import { test, expect, type Page } from '@playwright/test';
 import bwip from 'bwip-js/node';
 import { emptyData, type Data } from '../../src/types';
+const runtimeErrors = new WeakMap<Page, string[]>();
+test.beforeEach(({ page }) => {
+  const errors: string[] = [];
+  runtimeErrors.set(page, errors);
+  page.on('pageerror', (error) => errors.push(error.message));
+});
+test.afterEach(({ page }) => {
+  expect(runtimeErrors.get(page)).toEqual([]);
+});
 const uid = '11111111-1111-4111-8111-111111111111';
 async function backend(page: Page) {
   const db = emptyData();
@@ -366,8 +375,15 @@ test('mobile food choice shows weight immediately with stable input sizing and a
   await expect(page.getByLabel('Nutrition for this portion')).toContainText('86.3 kcal');
   // A reduced viewport catches clipped dialogs; it is not an actual iOS keyboard test.
   await page.setViewportSize({ width: 390, height: 460 });
-  const compactDialog = await page.getByRole('dialog').boundingBox();
-  expect(compactDialog!.height).toBeLessThanOrEqual(432);
+  await expect
+    .poll(async () => (await page.getByRole('dialog').boundingBox())!.height)
+    .toBeLessThanOrEqual(432);
+  await expect
+    .poll(async () => {
+      const box = (await page.getByRole('dialog').boundingBox())!;
+      return box.y >= 0 && box.y + box.height <= 460;
+    })
+    .toBe(true);
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Add food', exact: true })
@@ -615,4 +631,137 @@ test('Recent excludes unused foods and searching Favourites keeps that filter', 
   await expect(page.getByRole('dialog').getByRole('button', { name: /^Green unused/ })).toHaveCount(
     0,
   );
+});
+
+test('first-time Add Food resumes the requested task after sign-in', async ({ page }) => {
+  await backend(page);
+  await page.goto('http://127.0.0.1:5174');
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByLabel('Email', { exact: true }).fill('personal@example.com');
+  await page.getByLabel('Password', { exact: true }).fill('secure-test-password');
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Add to your diary', exact: true })).toBeVisible({
+    timeout: 2000,
+  });
+});
+
+test('first-time reference selection survives sign-in without choosing the food again', async ({
+  page,
+}) => {
+  await backend(page);
+  await page.goto('http://127.0.0.1:5174');
+  await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+  await page.getByLabel('Search your food library').fill('soya chunks');
+  await page.getByRole('button', { name: /^Soya chunks — dry/ }).click();
+  await page.getByLabel('Email', { exact: true }).fill('personal@example.com');
+  await page.getByLabel('Password', { exact: true }).fill('secure-test-password');
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByLabel('Food or product name')).toHaveValue('Soya chunks — dry', {
+    timeout: 2000,
+  });
+});
+
+test('hurried ingredient entry with Enter adds the ingredient rather than submitting the recipe', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Recipes', exact: true }).first().click();
+  await page.getByRole('button', { name: 'New recipe', exact: true }).click();
+  await page.getByLabel('Recipe name').fill('Enter key recipe');
+  await page.getByLabel('Search ingredients').fill('soya chunks');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  await page.getByLabel('Quantity in g', { exact: true }).fill('25');
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Quantity for Soya chunks — dry (g)', { exact: true })).toBeVisible({
+    timeout: 2000,
+  });
+  expect(api.db.recipes).toHaveLength(0);
+  await expect(page.getByRole('dialog').getByRole('alert')).toHaveCount(0);
+});
+
+test('empty filtered food library explains the result and offers recovery', async ({ page }) => {
+  await backend(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+  await page.getByLabel('Search your food library').fill('soya chunks');
+  await page.getByRole('button', { name: /^Soya chunks — dry/ }).click();
+  await page.getByRole('button', { name: 'Save to my foods', exact: true }).click();
+  await page.getByRole('button', { name: 'Homemade', exact: true }).click();
+  await expect(page.getByText('No foods match these filters.', { exact: true })).toBeVisible({
+    timeout: 2000,
+  });
+  await page.getByRole('button', { name: 'Clear food filters', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Log food', exact: true })).toBeVisible();
+});
+
+for (const recovery of ['cancel', 'new-task'] as const) {
+  test(`a slow barcode lookup cannot replace a newer task (${recovery})`, async ({ page }) => {
+    await backend(page);
+    await login(page);
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let received = false;
+    await page.route('**/functions/v1/food-lookup', async (route) => {
+      received = true;
+      await waiting;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'not_found' }),
+      });
+    });
+    try {
+      await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
+      await page.getByLabel('Or enter barcode').fill('8901234567890');
+      await page.getByRole('button', { name: 'Look up product', exact: true }).click();
+      await expect.poll(() => received).toBe(true);
+      await expect(page.getByRole('button', { name: 'Scan Barcode', exact: true })).toBeDisabled({
+        timeout: 2000,
+      });
+      if (recovery === 'cancel')
+        await page.getByRole('button', { name: 'Cancel lookup', exact: true }).click();
+      await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+      release();
+      await expect(
+        page.getByRole('heading', { name: 'Add to your diary', exact: true }),
+      ).toBeVisible();
+      await expect(page.getByText(/Product not found/)).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Cancel lookup', exact: true })).toHaveCount(0);
+    } finally {
+      release();
+    }
+  });
+}
+
+test('a complete quick-entry workflow works using only the keyboard', async ({ page }) => {
+  const api = await backend(page);
+  await login(page);
+  async function tabTo(locator: ReturnType<Page['getByRole']>) {
+    for (let n = 0; n < 60; n++) {
+      if (await locator.evaluate((el) => el === document.activeElement)) return;
+      await page.keyboard.press('Tab');
+    }
+    throw new Error('Control cannot be reached using Tab');
+  }
+  await tabTo(page.getByRole('button', { name: 'Add Food', exact: true }));
+  await page.keyboard.press('Enter');
+  await tabTo(page.getByRole('button', { name: 'Quick calories', exact: true }));
+  await page.keyboard.press('Enter');
+  await tabTo(page.getByLabel('Entry name', { exact: true }));
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('Keyboard snack');
+  await tabTo(page.getByLabel('Calories (kcal)', { exact: true }));
+  await page.keyboard.type('125');
+  await tabTo(page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }));
+  await page.keyboard.press('Enter');
+  await expect.poll(() => api.db.diary_entries.length).toBe(1);
+  expect(api.db.diary_entries[0].nutrition.calories).toBe(125);
+  expect(api.db.diary_entries[0].nutrition.protein).toBeNull();
+  await expect(page.locator('.ring-label strong')).toHaveText('125');
 });

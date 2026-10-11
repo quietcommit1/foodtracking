@@ -248,6 +248,12 @@ export default function RecipeForm({ recipe, onClose }: { recipe?: Recipe; onClo
                   step="any"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      add();
+                    }
+                  }}
                 />
               </label>
               <button type="button" className="secondary" onClick={add}>

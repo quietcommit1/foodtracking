@@ -67,6 +67,7 @@ export default function Dashboard({
   setDate,
   onAdd,
   onScan,
+  lookupPending = false,
   onEdit,
   onSettings,
 }: {
@@ -74,6 +75,7 @@ export default function Dashboard({
   setDate: (d: string) => void;
   onAdd: (meal?: Meal) => void;
   onScan: () => void;
+  lookupPending?: boolean;
   onEdit: (entry: Entry) => void;
   onSettings: () => void;
 }) {
@@ -298,7 +300,7 @@ export default function Dashboard({
               <Plus size={21} />
               Add Food
             </button>
-            <button className="secondary" onClick={onScan}>
+            <button className="secondary" disabled={lookupPending} onClick={onScan}>
               <ScanLine size={21} />
               Scan Barcode
             </button>

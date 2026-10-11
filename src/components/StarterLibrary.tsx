@@ -78,7 +78,7 @@ export default function StarterLibrary({
           Updating results…
         </p>
       )}
-      <div className="food-picker" aria-busy={query !== search}>
+      <div className="food-picker" aria-busy={query !== search || (!reference.length && !error)}>
         {shown.map((food) => (
           <button type="button" key={food.id} onClick={() => onChoose(food)}>
             <span>
@@ -96,7 +96,7 @@ export default function StarterLibrary({
           </button>
         ))}
       </div>
-      {!matches.length && (
+      {!matches.length && reference.length > 0 && query === search && (
         <p className="muted">
           No reference matches. Try another name, scan a package or create a custom food.
         </p>

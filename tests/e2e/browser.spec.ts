@@ -1,5 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+const runtimeErrors = new WeakMap<Page, string[]>();
+test.beforeEach(({ page }) => {
+  const errors: string[] = [];
+  runtimeErrors.set(page, errors);
+  page.on('pageerror', (error) => errors.push(error.message));
+});
+test.afterEach(({ page }) => {
+  expect(runtimeErrors.get(page)).toEqual([]);
+});
 test('mobile dashboard keeps all nutrients visible and navigates without overflow', async ({
   page,
 }) => {
@@ -105,4 +114,49 @@ test('narrow mobile dialog follows the visible viewport and restores keyboard fo
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(400);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Add Food', exact: true })).toBeFocused();
+});
+
+test('a tap inside dialog padding does not cancel the task', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  const box = await page.getByRole('dialog').boundingBox();
+  await page.mouse.click(box!.x + 5, box!.y + 100);
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 2000 });
+});
+
+test('keyboard users can skip repeated navigation and reach the main task', async ({ page }) => {
+  await page.goto('/');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'Skip to main content', exact: true })).toBeFocused({
+    timeout: 2000,
+  });
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('main')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('main :focus')).toBeVisible();
+});
+
+test('slow reference loading does not announce a false empty result', async ({ page }) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/src/data/usda-sr28.json*', async (route) => {
+    await waiting;
+    await route.continue();
+  });
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Foods', exact: true }).first().click();
+    await page.getByLabel('Search your food library').fill('lentils raw');
+    await expect(page.getByText('Loading USDA reference foods…', { exact: true })).toBeVisible();
+    await expect(page.getByText(/No reference matches/)).toHaveCount(0, { timeout: 2000 });
+    release();
+    await expect(
+      page.locator('.starter-library').getByRole('button', { name: /Lentils, raw/ }),
+    ).toBeVisible();
+  } finally {
+    release();
+  }
 });

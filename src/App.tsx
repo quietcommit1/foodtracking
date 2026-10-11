@@ -61,7 +61,7 @@ export default function App() {
   const [tab, setTab] = useState('Today');
   const [date, setDate] = useState(localDate());
   const lastToday = useRef(localDate());
-  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [dialog, setDialogState] = useState<Dialog | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All foods');
   const [lookup, setLookup] = useState(false);
@@ -69,7 +69,11 @@ export default function App() {
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const lookupVersion = useRef(0);
   const accountRef = useRef<string | null>(null);
+  const accountReady = useRef<Promise<void>>(Promise.resolve());
+  const nextAction = useRef<(() => Dialog) | null>(null);
+  const actionVersion = useRef(0);
   const store = useStore();
   const { data, queue, error, syncing, loading, hydrated, mutate } = store;
   useEffect(() => {
@@ -100,8 +104,13 @@ export default function App() {
       const uid = session?.user?.id ?? null;
       if (accountRef.current !== uid) {
         accountRef.current = uid;
+        cancelLookup();
+        if (!uid) {
+          nextAction.current = null;
+          actionVersion.current++;
+        }
         setDialog(null);
-        void setAccount(uid).catch((e) => setToast(e.message));
+        accountReady.current = setAccount(uid).catch((e) => setToast(e.message));
       }
     });
     return () => subscription.unsubscribe();
@@ -125,14 +134,43 @@ export default function App() {
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, [data.profiles]);
-  function requireAuth(d: Dialog) {
+  function cancelLookup() {
+    lookupVersion.current++;
+    setLookup(false);
+  }
+  // A new task must never be replaced by a response from an older lookup.
+  function setDialog(next: Dialog | null) {
+    if (next) cancelLookup();
+    setDialogState(next);
+  }
+  function navigate(next: string) {
+    cancelLookup();
+    setTab(next);
+  }
+  function requireAuth(d: Dialog | (() => Dialog)) {
     if (loading) {
       setToast('Your account cache is loading. Please try again in a moment.');
       return;
     }
-    setDialog(user ? d : { kind: 'auth' });
+    actionVersion.current++;
+    const resolve = typeof d === 'function' ? d : () => d;
+    nextAction.current = user ? null : resolve;
+    setDialog(user ? resolve() : { kind: 'auth' });
+  }
+  async function resumeAfterSignIn() {
+    const intent = nextAction.current;
+    nextAction.current = null;
+    const uid = accountRef.current;
+    const version = actionVersion.current;
+    setDialog(null);
+    await accountReady.current;
+    if (uid && accountRef.current === uid && version === actionVersion.current && intent)
+      setDialog(intent());
   }
   async function scan(code: string) {
+    const request = ++lookupVersion.current;
+    const uid = accountRef.current;
+    const isCurrent = () => request === lookupVersion.current && uid === accountRef.current;
     setDialog(null);
     setLookup(true);
     try {
@@ -152,6 +190,7 @@ export default function App() {
         return;
       }
       const result = await lookupBarcode(barcode);
+      if (!isCurrent()) return;
       if (result.status === 'saved') setDialog({ kind: 'add', food: result.food });
       else if (result.status === 'found') {
         const food = externalFood(result, base());
@@ -178,6 +217,7 @@ export default function App() {
               : (result.message ?? 'Lookup unavailable. You can enter nutrition manually.'),
         });
     } catch (e) {
+      if (!isCurrent()) return;
       setDialog({
         kind: 'food',
         barcode: code,
@@ -185,7 +225,7 @@ export default function App() {
         notice: `Lookup unavailable: ${(e as Error).message}. Manual entry is available.`,
       });
     } finally {
-      setLookup(false);
+      if (isCurrent()) setLookup(false);
     }
   }
   async function favourite(f: Food) {
@@ -215,15 +255,29 @@ export default function App() {
             : hydrated
               ? 'Synced'
               : 'Connecting';
+  const visibleFoods = data.foods
+    .filter((food) => matchesFood(food, search))
+    .filter((food) =>
+      filter === 'Favourites'
+        ? data.favourites.some((item) => item.food_id === food.id)
+        : filter === 'Packaged'
+          ? food.state === 'packaged'
+          : filter === 'Homemade'
+            ? food.state !== 'packaged'
+            : true,
+    );
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <aside className="sidebar">
         <a
           className="brand"
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            setTab('Today');
+            navigate('Today');
           }}
         >
           <span className="brand-symbol">
@@ -240,7 +294,7 @@ export default function App() {
               className={tab === name ? 'active' : ''}
               aria-current={tab === name ? 'page' : undefined}
               onClick={() => {
-                setTab(name);
+                navigate(name);
                 setSearch('');
               }}
             >
@@ -301,7 +355,7 @@ export default function App() {
             {user?.email?.[0].toUpperCase() ?? 'Y'}
           </button>
         </header>
-        <main>
+        <main id="main-content" tabIndex={-1}>
           {!supabase && (
             <div className="connection-banner">
               <span>Welcome to Everyday. Connect Supabase to save your private diary.</span>
@@ -390,9 +444,12 @@ export default function App() {
             </p>
           )}
           {lookup && (
-            <p role="status" className="notice">
-              Looking up your saved products, then Open Food Facts…
-            </p>
+            <div className="notice">
+              <p role="status">Looking up your saved products, then Open Food Facts…</p>
+              <button type="button" className="text-button" onClick={cancelLookup}>
+                Cancel lookup
+              </button>
+            </div>
           )}
           {toast && (
             <div role="status" className="notice">
@@ -407,6 +464,7 @@ export default function App() {
               date={date}
               setDate={setDate}
               onAdd={(meal) => requireAuth({ kind: 'add', meal })}
+              lookupPending={lookup}
               onScan={() => requireAuth({ kind: 'scan' })}
               onEdit={(entry) => requireAuth({ kind: 'add', entry })}
               onSettings={() => setDialog({ kind: 'settings' })}
@@ -435,7 +493,11 @@ export default function App() {
                     placeholder="Search foods, brands or barcodes"
                   />
                 </div>
-                <button className="secondary" onClick={() => requireAuth({ kind: 'scan' })}>
+                <button
+                  className="secondary"
+                  disabled={lookup}
+                  onClick={() => requireAuth({ kind: 'scan' })}
+                >
                   <ScanLine size={18} />
                   Scan barcode
                 </button>
@@ -453,117 +515,121 @@ export default function App() {
                 ))}
               </div>
               <div className="library-grid">
-                {data.foods
-                  .filter((f) => matchesFood(f, search))
-                  .filter((f) =>
-                    filter === 'Favourites'
-                      ? data.favourites.some((x) => x.food_id === f.id)
-                      : filter === 'Packaged'
-                        ? f.state === 'packaged'
-                        : filter === 'Homemade'
-                          ? f.state !== 'packaged'
-                          : true,
-                  )
-                  .map((f) => (
-                    <article className="food-card surface" key={f.id}>
-                      <div className="food-card-top">
-                        <div className="food-glyph">
-                          <Utensils size={23} />
-                        </div>
-                        <button
-                          className={`icon-button ${data.favourites.some((x) => x.food_id === f.id) ? 'is-favourite' : ''}`}
-                          aria-label={`Toggle favourite ${f.name}`}
-                          aria-pressed={data.favourites.some((x) => x.food_id === f.id)}
-                          onClick={() => void favourite(f).catch((e) => setToast(e.message))}
-                        >
-                          <Star size={19} />
-                        </button>
+                {visibleFoods.map((f) => (
+                  <article className="food-card surface" key={f.id}>
+                    <div className="food-card-top">
+                      <div className="food-glyph">
+                        <Utensils size={23} />
                       </div>
-                      <h3>{f.name}</h3>
-                      <p className="muted small">
-                        {f.brand || f.state} ·{' '}
+                      <button
+                        className={`icon-button ${data.favourites.some((x) => x.food_id === f.id) ? 'is-favourite' : ''}`}
+                        aria-label={`Toggle favourite ${f.name}`}
+                        aria-pressed={data.favourites.some((x) => x.food_id === f.id)}
+                        onClick={() => void favourite(f).catch((e) => setToast(e.message))}
+                      >
+                        <Star size={19} />
+                      </button>
+                    </div>
+                    <h3>{f.name}</h3>
+                    <p className="muted small">
+                      {f.brand || f.state} ·{' '}
+                      {f.source === 'openfoodfacts'
+                        ? 'Open Food Facts'
+                        : f.source === 'recipe'
+                          ? 'Homemade recipe'
+                          : librarySourceLabel(f)}
+                    </p>
+                    <div className="food-calories">
+                      <strong>{fmt(f.nutrition.calories)}</strong> kcal{' '}
+                      <span>
+                        / {f.basis_amount} {f.basis}
+                      </span>
+                    </div>
+                    <div className="food-macros">
+                      P {fmt(f.nutrition.protein)} g <span>·</span> C {fmt(f.nutrition.carbs)} g{' '}
+                      <span>·</span> F {fmt(f.nutrition.fat)} g
+                    </div>
+                    {f.barcode && <p className="barcode-text">{f.barcode}</p>}
+                    <div className="food-actions">
+                      <button
+                        className="secondary"
+                        onClick={() => requireAuth({ kind: 'add', food: f })}
+                      >
+                        <Plus size={16} />
+                        Log food
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`Edit ${f.name}`}
+                        onClick={() =>
+                          setDialog(
+                            f.recipe_id
+                              ? {
+                                  kind: 'recipe',
+                                  recipe: data.recipes.find((r) => r.id === f.recipe_id),
+                                }
+                              : { kind: 'food', food: f },
+                          )
+                        }
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`Delete ${f.name}`}
+                        onClick={() => {
+                          setDeleteError('');
+                          setDialog({ kind: 'delete', food: f });
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    {f.source_url && (
+                      <a
+                        className="small source-link"
+                        href={f.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         {f.source === 'openfoodfacts'
-                          ? 'Open Food Facts'
-                          : f.source === 'recipe'
-                            ? 'Homemade recipe'
-                            : librarySourceLabel(f)}
-                      </p>
-                      <div className="food-calories">
-                        <strong>{fmt(f.nutrition.calories)}</strong> kcal{' '}
-                        <span>
-                          / {f.basis_amount} {f.basis}
-                        </span>
-                      </div>
-                      <div className="food-macros">
-                        P {fmt(f.nutrition.protein)} g <span>·</span> C {fmt(f.nutrition.carbs)} g{' '}
-                        <span>·</span> F {fmt(f.nutrition.fat)} g
-                      </div>
-                      {f.barcode && <p className="barcode-text">{f.barcode}</p>}
-                      <div className="food-actions">
-                        <button
-                          className="secondary"
-                          onClick={() => requireAuth({ kind: 'add', food: f })}
-                        >
-                          <Plus size={16} />
-                          Log food
-                        </button>
-                        <button
-                          className="icon-button"
-                          aria-label={`Edit ${f.name}`}
-                          onClick={() =>
-                            setDialog(
-                              f.recipe_id
-                                ? {
-                                    kind: 'recipe',
-                                    recipe: data.recipes.find((r) => r.id === f.recipe_id),
-                                  }
-                                : { kind: 'food', food: f },
-                            )
-                          }
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          aria-label={`Delete ${f.name}`}
-                          onClick={() => {
-                            setDeleteError('');
-                            setDialog({ kind: 'delete', food: f });
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      {f.source_url && (
-                        <a
-                          className="small source-link"
-                          href={f.source_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {f.source === 'openfoodfacts'
-                            ? 'Source: Open Food Facts · ODbL'
-                            : librarySourceLabel(f)}{' '}
-                          ↗
-                        </a>
-                      )}
-                    </article>
-                  ))}
+                          ? 'Source: Open Food Facts · ODbL'
+                          : librarySourceLabel(f)}{' '}
+                        ↗
+                      </a>
+                    )}
+                  </article>
+                ))}
               </div>
+              {!visibleFoods.length && (filter !== 'All foods' || !!search) && (
+                <div className="notice" role="status">
+                  <p>
+                    {filter === 'All foods'
+                      ? 'No saved foods match this search. Try the reference library below.'
+                      : 'No foods match these filters.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => {
+                      setFilter('All foods');
+                      setSearch('');
+                    }}
+                  >
+                    Clear food filters
+                  </button>
+                </div>
+              )}
               {filter === 'All foods' && (
                 <StarterLibrary
                   search={search}
                   saved={data.foods}
                   onChoose={(food) => {
-                    if (!user) {
-                      setDialog({ kind: 'auth' });
-                      return;
-                    }
-                    requireAuth({
+                    requireAuth(() => ({
                       kind: 'food',
                       food: catalogDraft(food, base()),
                       notice: catalogNoticeFor(food),
-                    });
+                    }));
                   }}
                 />
               )}
@@ -650,7 +716,7 @@ export default function App() {
             <History
               onDate={(d) => {
                 setDate(d);
-                setTab('Today');
+                navigate('Today');
               }}
             />
           )}
@@ -664,7 +730,7 @@ export default function App() {
               key={name}
               className={tab === name ? 'active' : ''}
               aria-current={tab === name ? 'page' : undefined}
-              onClick={() => setTab(name)}
+              onClick={() => navigate(name)}
             >
               <Icon size={21} />
               {name}
@@ -676,7 +742,16 @@ export default function App() {
           </button>
         </nav>
       </div>
-      {dialog?.kind === 'auth' && <Auth onClose={() => setDialog(null)} />}{' '}
+      {dialog?.kind === 'auth' && (
+        <Auth
+          onSuccess={() => void resumeAfterSignIn()}
+          onClose={() => {
+            nextAction.current = null;
+            actionVersion.current++;
+            setDialog(null);
+          }}
+        />
+      )}{' '}
       {dialog?.kind === 'settings' && (
         <Settings
           onClose={() => setDialog(null)}

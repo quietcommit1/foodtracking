@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import Modal from './Modal';
 import { supabase } from '../store';
-export default function Auth({ onClose }: { onClose: () => void }) {
+export default function Auth({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess?: () => void;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [signup, setSignup] = useState(false);
@@ -22,7 +28,7 @@ export default function Auth({ onClose }: { onClose: () => void }) {
       setMessage(
         'Account created. Check your email to confirm, or use the initial-account setup in the README.',
       );
-    else onClose();
+    else (onSuccess ?? onClose)();
   }
   return (
     <Modal title={signup ? 'Create your account' : 'Welcome to Everyday'} onClose={onClose}>

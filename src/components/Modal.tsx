@@ -63,7 +63,15 @@ export default function Modal({
         requestClose();
       }}
       onClick={(e) => {
-        if (e.target === ref.current) requestClose();
+        if (e.target !== ref.current) return;
+        const box = ref.current.getBoundingClientRect();
+        if (
+          e.clientX < box.left ||
+          e.clientX > box.right ||
+          e.clientY < box.top ||
+          e.clientY > box.bottom
+        )
+          requestClose();
       }}
     >
       <div className="modal-head">

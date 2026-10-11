@@ -2160,7 +2160,7 @@ dialog {
   dialog {
     /* iOS keyboards resize the visual viewport even when the layout viewport stays tall. */
     max-height: calc(
-      var(--dialog-visible-height, 100dvh) - 28px - env(safe-area-inset-top, 0px) -
+      min(100dvh, var(--dialog-visible-height, 100dvh)) - 28px - env(safe-area-inset-top, 0px) -
         env(safe-area-inset-bottom, 0px)
     );
     top: var(--dialog-center, 50%);
@@ -2168,4 +2168,20 @@ dialog {
     margin-block: 0;
     transform: translateY(-50%);
   }
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 12px 18px;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--green);
+  border-radius: 8px;
+  transform: translateY(-150%);
+}
+.skip-link:focus {
+  transform: translateY(0);
 }
