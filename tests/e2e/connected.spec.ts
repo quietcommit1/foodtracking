@@ -175,6 +175,13 @@ test('production PWA survives offline reload and syncs a cached custom product o
 }) => {
   const api = await backend(page);
   await login(page, 'http://127.0.0.1:5175');
+  const manifest = await page.evaluate(async () => {
+    const url = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')!.href;
+    return (await fetch(url)).json();
+  });
+  expect(manifest.display).toBe('standalone');
+  expect(manifest.start_url).toBe('/');
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute('content', /viewport-fit=cover/);
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
@@ -350,6 +357,13 @@ test('mobile food choice shows weight immediately with stable input sizing and a
   await quantity.fill('25');
   await expect(page.getByLabel('Nutrition for this portion')).toContainText('13 g protein');
   await expect(page.getByLabel('Nutrition for this portion')).toContainText('86.3 kcal');
+  // A reduced viewport catches clipped dialogs; it is not an actual iOS keyboard test.
+  await page.setViewportSize({ width: 390, height: 460 });
+  const compactDialog = await page.getByRole('dialog').boundingBox();
+  expect(compactDialog!.height).toBeLessThanOrEqual(432);
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true })).toBeInViewport();
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-portion-step.png' });
   await page.getByRole('button', { name: 'Change food' }).click();
   await expect(page.getByLabel('Search saved foods')).toBeVisible();

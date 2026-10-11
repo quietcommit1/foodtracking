@@ -2060,3 +2060,25 @@ dialog {
 .form-grid select {
   min-width: 0;
 }
+/* Full-screen iPhone home-screen installs draw underneath the device safe areas. */
+@media (max-width: 760px) {
+  .topbar {
+    height: calc(61px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(21px, env(safe-area-inset-left, 0px));
+    padding-right: max(21px, env(safe-area-inset-right, 0px));
+  }
+  .workspace main {
+    padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
+  .mobile-nav {
+    padding-left: max(7px, env(safe-area-inset-left, 0px));
+    padding-right: max(7px, env(safe-area-inset-right, 0px));
+  }
+  dialog {
+    max-height: calc(100dvh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 28px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  }
+}
