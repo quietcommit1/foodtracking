@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Modal from './Modal';
 import { base, op, useStore } from '../store';
 import { unknown, normalizeBarcode } from '../nutrition';
@@ -37,12 +37,17 @@ export default function FoodForm({
     },
   );
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
   const [duplicate, setDuplicate] = useState<Food | null>(null);
   const [portion, setPortion] = useState({ name: '', quantity: '', unit: 'g' });
   function field(k: keyof Food, v: unknown) {
     setDraft({ ...draft, [k]: v });
   }
   async function save() {
+    if (submitting.current) return;
+    submitting.current = true;
+    setSaving(true);
     try {
       if (!draft.name.trim()) throw Error('Enter a product or food name');
       if (draft.basis_amount <= 0 || (draft.serving_size !== null && draft.serving_size <= 0))
@@ -94,6 +99,9 @@ export default function FoodForm({
       onClose();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      submitting.current = false;
+      setSaving(false);
     }
   }
   return (
@@ -282,8 +290,12 @@ export default function FoodForm({
             Edit {duplicate.name}
           </button>
         )}
-        <button className="primary wide" type="submit">
-          {food && data.foods.some((f) => f.id === food.id) ? 'Save changes' : 'Save to my foods'}
+        <button className="primary wide" type="submit" disabled={saving}>
+          {saving
+            ? 'Saving…'
+            : food && data.foods.some((f) => f.id === food.id)
+              ? 'Save changes'
+              : 'Save to my foods'}
         </button>
         <p className="small muted">
           {draft.source === 'manual'

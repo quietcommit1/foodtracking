@@ -13,10 +13,13 @@ export default function Modal({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     ref.current?.showModal();
     return () => {
       ref.current?.close();
-      previous?.focus();
+      document.body.style.overflow = overflow;
+      previous?.focus({ preventScroll: true });
     };
   }, []);
   return (

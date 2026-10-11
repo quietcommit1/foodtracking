@@ -2,6 +2,8 @@
 
 Validated in the onboarding cloud machine on 11 October 2026 with Node 24.19.0, npm 11.9.0 and installed Chromium. The repository began empty with an unborn Git branch; the initial application was built locally. Source was subsequently committed and pushed to `quietcommit1/foodtracking` on `main`. Deployment status is documented in `DEPLOYMENT.md`.
 
+## Initial onboarding checks
+
 | Check                                        | Result                                                                                                                |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `npm ci --cache /workspace/.npm-cache`       | Passed; frozen install tested, including repeat installation                                                          |
@@ -35,3 +37,11 @@ The cloud configuration draft saved `install_script`, `start_skill`, the actual 
 Follow README.md to create/connect a Supabase Free project, apply the SQL migration, create an individually confirmed initial account, deploy `food-lookup`, supply its contact/staging settings and configure HTTPS static deployment. Use `npm run test:hosted` with two disposable confirmed test accounts to verify the real hosted Auth/RLS/Edge boundary. Complete the phone checklist before relying on camera scanning.
 
 The full-account cache uses 500-row paginated reads and is appropriate for the initial personal scope. Multi-device conflicts use last server-received write wins. Restore requires syncing/closing other devices and refreshing them afterwards; offline queues on those devices are not invalidated automatically. Both policies, provider limits, privacy and data licensing are documented in README.md.
+
+## Subsequent mobile usability checks — 11 October 2026
+
+- `npm test`: 38 tests passed across 9 files, including meal protein totals, unknown protein and independently updated dashboard values.
+- `npm run build`: TypeScript and production PWA build passed.
+- `npm run test:e2e`: 13 Chromium tests passed, including the new mobile choose-food → immediate quantity → live protein preview → log flow, input font size >=16 px, Change food navigation, no horizontal overflow, dashboard accessibility, barcode photo decoding, retries and production offline reload.
+- Real iPhone Safari auto-zoom/keyboard/camera testing remains unavailable in the cloud; mobile Chromium checks and the CSS fix do not constitute a real-device Safari result.
+- The public site was deployed through GitHub Actions on earlier changes. OFF's record for Nakpro barcode 8906133020187 was checked live: it exists without structured nutrition. The deployed site's Supabase `food-lookup` endpoint returned HTTP 404; see BARCODE_SETUP.md. Hosted authenticated diary/Edge tests still require real disposable accounts and a deployed function.

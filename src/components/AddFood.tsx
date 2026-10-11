@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Star } from 'lucide-react';
 import Modal from './Modal';
 import StarterLibrary from './StarterLibrary';
@@ -44,6 +44,22 @@ export default function AddFood({
     entry?.nutrition.calories === null ? '' : String(entry?.nutrition.calories ?? ''),
   );
   const [saved, setSaved] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
+  const quantityInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selected) {
+      quantityInput.current?.closest('dialog')?.scrollTo({ top: 0, behavior: 'auto' });
+      quantityInput.current?.focus({ preventScroll: true });
+    }
+  }, [selected?.id]);
+  let preview;
+  try {
+    if (selected) preview = makeSnapshot(selected, Number(quantity), unit).nutrition;
+  } catch {
+    /* validation stays in the form */
+  }
+
   const favouriteIds = data.favourites.map((f) => f.food_id);
   const recentIds = [...data.diary_entries]
     .sort((a, b) => (b.updated_at ?? b.date).localeCompare(a.updated_at ?? a.date))
@@ -65,6 +81,9 @@ export default function AddFood({
     setError('');
   }
   async function submit() {
+    if (submitting.current) return;
+    submitting.current = true;
+    setSaving(true);
     try {
       if (!day) throw Error('Choose a date');
       if (saved) {
@@ -134,6 +153,9 @@ export default function AddFood({
       onClose();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      submitting.current = false;
+      setSaving(false);
     }
   }
   return (
@@ -158,7 +180,7 @@ export default function AddFood({
             </select>
           </label>
         </div>
-        {!entry && (
+        {!entry && !selected && !quick && !saved && (
           <>
             <div className="search">
               <Search size={18} />
@@ -198,7 +220,6 @@ export default function AddFood({
                   <button
                     type="button"
                     key={f.id}
-                    className={selected?.id === f.id ? 'chosen' : ''}
                     onClick={() => {
                       select(f);
                       setSaved('');
@@ -221,6 +242,7 @@ export default function AddFood({
             )}
             {!quick && (search || tab === 'library' || !foods.length) && (
               <StarterLibrary
+                compact
                 search={search}
                 saved={data.foods}
                 onChoose={(item) => {
@@ -254,6 +276,28 @@ export default function AddFood({
             )}
           </>
         )}
+        {!entry && (selected || quick || saved) && (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              setSelected(undefined);
+              setQuick(false);
+              setSaved('');
+              setError('');
+            }}
+          >
+            ← Change food
+          </button>
+        )}
+        {saved && (
+          <div className="portion-box">
+            <strong>{data.saved_meals.find((item) => item.id === saved)?.name}</strong>
+            <p className="small muted">
+              Adds the saved meal's original portions and nutrition to your diary.
+            </p>
+          </div>
+        )}
         {quick ? (
           <>
             <label>
@@ -279,14 +323,16 @@ export default function AddFood({
           (selected || entry) && (
             <div className="portion-box">
               <strong>{selected?.name ?? entry?.name}</strong>
-              {selected?.source_id &&
-                (selected.source_id.startsWith('everyday-starter-v1:') ||
-                  selected.source_id.startsWith('usda-sr28:')) && (
-                  <p className="notice">
-                    {selected.notes} Adding this food confirms the nutrition and saves a private
-                    copy to your library.
-                  </p>
-                )}
+              {selected?.source_id?.startsWith('everyday-starter-v1:') && (
+                <p className="small muted">
+                  Starter estimate — review against your package or recipe.
+                </p>
+              )}
+              {selected?.source_id?.startsWith('usda-sr28:') && (
+                <p className="small muted">
+                  USDA historical reference — match the exact preparation.
+                </p>
+              )}
               {selected && (
                 <p className="small">
                   Per {selected.basis_amount} {selected.basis}: {fmt(selected.nutrition.calories)}{' '}
@@ -298,6 +344,8 @@ export default function AddFood({
                 <label>
                   Quantity
                   <input
+                    ref={quantityInput}
+                    inputMode="decimal"
                     required
                     type="number"
                     min="0.01"
@@ -331,6 +379,38 @@ export default function AddFood({
                   </select>
                 </label>
               </div>
+              {preview && (
+                <div
+                  className="portion-preview"
+                  role="group"
+                  aria-live="polite"
+                  aria-label="Nutrition for this portion"
+                >
+                  <span>
+                    <strong>{fmt(preview.calories)}</strong> kcal
+                  </span>
+                  <span>
+                    <strong>{fmt(preview.protein)}</strong> g protein
+                  </span>
+                  <span>
+                    <strong>{fmt(preview.carbs)}</strong> g carbs
+                  </span>
+                  <span>
+                    <strong>{fmt(preview.fat)}</strong> g fat
+                  </span>
+                </div>
+              )}
+              {selected?.source_id &&
+                (selected.source_id.startsWith('everyday-starter-v1:') ||
+                  selected.source_id.startsWith('usda-sr28:')) && (
+                  <details>
+                    <summary>Nutrition source and portion guidance</summary>
+                    <p>
+                      {selected.notes} Adding this food confirms the nutrition and saves a private
+                      copy to your library.
+                    </p>
+                  </details>
+                )}
               {selected &&
                 data.food_portions
                   .filter((p) => p.food_id === selected.id)
@@ -362,9 +442,13 @@ export default function AddFood({
             {error}
           </p>
         )}
-        <button className="primary wide" type="submit">
-          {entry ? 'Save entry' : 'Add food'}
-        </button>
+        {(entry || selected || quick || saved) && (
+          <div className="dialog-actions">
+            <button className="primary wide" type="submit" disabled={saving}>
+              {saving ? 'Saving…' : entry ? 'Save entry' : 'Add food'}
+            </button>
+          </div>
+        )}
       </form>
     </Modal>
   );

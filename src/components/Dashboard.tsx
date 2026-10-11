@@ -104,33 +104,45 @@ export default function Dashboard({
       setActionError('Choose a destination date');
       return;
     }
-    await mutate(
-      entries
-        .filter((e) => e.meal === copy)
-        .map((e) => op('diary_entries', { ...e, ...base(), date: destination })),
-    );
-    setCopy(null);
+    try {
+      await mutate(
+        entries
+          .filter((e) => e.meal === copy)
+          .map((e) => op('diary_entries', { ...e, ...base(), date: destination })),
+      );
+      setCopy(null);
+    } catch (e) {
+      setActionError((e as Error).message);
+    }
   }
   async function bookmark() {
-    const m = { ...base(), name: mealName };
-    await mutate([
-      op('saved_meals', m),
-      ...entries
-        .filter((e) => e.meal === saveMeal)
-        .map((e) =>
-          op('saved_meal_items', {
-            ...base(),
-            saved_meal_id: m.id,
-            food_id: e.food_id,
-            name: e.name,
-            quantity: e.quantity,
-            unit: e.unit,
-            nutrition: e.nutrition,
-            portion_snapshot: e.portion_snapshot,
-          }),
-        ),
-    ]);
-    setSaveMeal(null);
+    if (!mealName.trim()) {
+      setActionError('Enter a meal name');
+      return;
+    }
+    try {
+      const m = { ...base(), name: mealName.trim() };
+      await mutate([
+        op('saved_meals', m),
+        ...entries
+          .filter((e) => e.meal === saveMeal)
+          .map((e) =>
+            op('saved_meal_items', {
+              ...base(),
+              saved_meal_id: m.id,
+              food_id: e.food_id,
+              name: e.name,
+              quantity: e.quantity,
+              unit: e.unit,
+              nutrition: e.nutrition,
+              portion_snapshot: e.portion_snapshot,
+            }),
+          ),
+      ]);
+      setSaveMeal(null);
+    } catch (e) {
+      setActionError((e as Error).message);
+    }
   }
   return (
     <>
@@ -289,8 +301,12 @@ export default function Dashboard({
                 list.map((e) => e.nutrition),
                 'calories',
               );
+              const protein = knownTotal(
+                list.map((e) => e.nutrition),
+                'protein',
+              );
               return (
-                <article className="meal-card" key={meal}>
+                <article className="meal-card" key={meal} aria-label={meal}>
                   <div className="meal-head">
                     <div className={`meal-icon meal-${i}`}>
                       <Icon size={20} />
@@ -303,9 +319,18 @@ export default function Dashboard({
                           : 'Nothing logged yet'}
                       </small>
                     </h3>
-                    <strong className="meal-calories">
-                      {fmt(c.value)} <small>kcal{c.incomplete ? '*' : ''}</small>
-                    </strong>
+                    <div
+                      className="meal-nutrients"
+                      role="group"
+                      aria-label={`${meal} nutrition totals`}
+                    >
+                      <strong className="meal-calories">
+                        {fmt(c.value)} <small>kcal</small>
+                      </strong>
+                      <strong className="meal-protein">
+                        {fmt(protein.value)} <small>g protein</small>
+                      </strong>
+                    </div>
                     <button
                       className="icon-button"
                       aria-label={`Add food to ${meal}`}
@@ -316,7 +341,7 @@ export default function Dashboard({
                   </div>
                   {list.map((e) => (
                     <div className="diary-entry" key={e.id}>
-                      <div>
+                      <div className="entry-name">
                         <strong>{e.name}</strong>
                         <small>
                           {fmt(e.quantity)} {e.unit}
@@ -325,25 +350,44 @@ export default function Dashboard({
                           )}
                         </small>
                       </div>
-                      <span>
-                        {fmt(e.nutrition.calories)} <small>kcal</small>
-                      </span>
-                      <button
-                        className="icon-button"
-                        aria-label={`Edit ${e.name}`}
-                        onClick={() => onEdit(e)}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        className="icon-button"
-                        aria-label={`Delete ${e.name}`}
-                        onClick={() => setDeleteEntry(e)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="entry-nutrients">
+                        <span>
+                          {e.nutrition.calories === null
+                            ? 'Calories unknown'
+                            : `${fmt(e.nutrition.calories)} kcal`}
+                        </span>
+                        <span className="entry-protein">
+                          {e.nutrition.protein === null
+                            ? 'Protein unknown'
+                            : `${fmt(e.nutrition.protein)} g protein`}
+                        </span>
+                      </div>
+                      <div className="entry-actions">
+                        <button
+                          className="icon-button"
+                          aria-label={`Edit ${e.name}`}
+                          onClick={() => onEdit(e)}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          className="icon-button"
+                          aria-label={`Delete ${e.name}`}
+                          onClick={() => setDeleteEntry(e)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
                   ))}
+                  {(c.incomplete || protein.incomplete) && (
+                    <p className="meal-incomplete">
+                      {[c.incomplete ? 'Calorie' : '', protein.incomplete ? 'Protein' : '']
+                        .filter(Boolean)
+                        .join(' and ')}{' '}
+                      total incomplete — some entries have unknown values.
+                    </p>
+                  )}
                   {list.length > 0 ? (
                     <div className="meal-footer">
                       <button
@@ -361,6 +405,7 @@ export default function Dashboard({
                         onClick={() => {
                           setSaveMeal(meal);
                           setMealName(meal);
+                          setActionError('');
                         }}
                       >
                         <Bookmark size={14} />
@@ -477,6 +522,11 @@ export default function Dashboard({
                 onChange={(e) => setMealName(e.target.value)}
               />
             </label>
+            {actionError && (
+              <p role="alert" className="error">
+                {actionError}
+              </p>
+            )}
             <button className="primary">Save for next time</button>
           </form>
         </Modal>

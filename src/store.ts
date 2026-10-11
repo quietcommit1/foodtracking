@@ -113,22 +113,29 @@ export function base() {
 export async function fetchAll(): Promise<Data> {
   if (!supabase || !owner) throw Error('Supabase is not connected');
   const uid = owner;
+  const client = supabase;
   const next = emptyData();
-  for (const t of tables) {
-    let start = 0;
-    for (;;) {
-      const { data: rows, error } = await supabase
-        .from(t)
-        .select('*')
-        .eq('user_id', uid)
-        .order('id')
-        .range(start, start + 499);
-      if (error) throw error;
-      (next[t] as any[]).push(...rows);
-      if (rows.length < 500) break;
-      start += 500;
+  const remaining = [...tables];
+  async function worker() {
+    let t: Table | undefined;
+    while ((t = remaining.shift())) {
+      let start = 0;
+      for (;;) {
+        const { data: rows, error } = await client
+          .from(t)
+          .select('*')
+          .eq('user_id', uid)
+          .order('id')
+          .range(start, start + 499);
+        if (error) throw error;
+        (next[t] as any[]).push(...rows);
+        if (rows.length < 500) break;
+        start += 500;
+      }
     }
   }
+  // Bound concurrency keeps cross-device refresh responsive without bursting all tables at once.
+  await Promise.all([worker(), worker(), worker()]);
   return next;
 }
 export async function refresh() {

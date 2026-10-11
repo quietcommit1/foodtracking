@@ -163,11 +163,17 @@ export const catalog: CatalogFood[] = rows.map(
 );
 export const catalogNotice =
   'Starter estimate, not verified nutrition. Review against your package or recipe before saving. Values are per 100 g of the named raw/dry/cooked food, not per bowl or piece. Brand and cooking differences can be substantial. Fibre is unknown.';
+const searchText = new WeakMap<CatalogFood, string>();
 export function searchCatalog(query: string, foods: CatalogFood[] = catalog): CatalogFood[] {
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  return foods.filter((f) =>
-    words.every((word) => `${f.name} ${f.aliases}`.toLocaleLowerCase().includes(word)),
-  );
+  return foods.filter((f) => {
+    let text = searchText.get(f);
+    if (text === undefined) {
+      text = `${f.name} ${f.aliases}`.toLocaleLowerCase();
+      searchText.set(f, text);
+    }
+    return words.every((word) => text.includes(word));
+  });
 }
 export function catalogSourceId(id: string) {
   return id.startsWith('usda-sr28:') ? id : `everyday-starter-v1:${id}`;

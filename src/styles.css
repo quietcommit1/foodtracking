@@ -1834,3 +1834,229 @@ summary {
     min-height: 44px;
   }
 }
+
+/* Meal nutrition stays readable alongside long food names on narrow screens. */
+.meal-head {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto 44px;
+}
+.meal-head h3 {
+  min-width: 0;
+  font-size: 15px;
+}
+.meal-nutrients {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.meal-protein {
+  color: var(--green);
+  font-size: 14px;
+}
+.meal-protein small {
+  font-size: 11px;
+  font-weight: 500;
+}
+.meal-head > .icon-button {
+  width: 44px;
+  height: 44px;
+  margin-left: 0;
+}
+.diary-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+.diary-entry .entry-name {
+  min-width: 0;
+}
+.entry-name strong,
+.entry-name small {
+  overflow-wrap: anywhere;
+}
+.diary-entry .entry-nutrients {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.entry-protein {
+  color: var(--green);
+  font-size: 11px;
+}
+.diary-entry .icon-button {
+  width: 44px;
+  height: 44px;
+}
+.meal-incomplete {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 10px 0;
+}
+.starter-library {
+  margin-top: 24px;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.starter-library h2 {
+  font-size: 19px;
+  margin-bottom: 10px;
+}
+.starter-library > p {
+  line-height: 1.65;
+  margin-bottom: 12px;
+}
+.starter-library .food-picker {
+  max-height: none;
+}
+.starter-library.compact {
+  padding: 14px;
+  margin-top: 16px;
+}
+.starter-library.compact .food-picker {
+  max-height: 240px;
+}
+.starter-library .food-picker > button {
+  gap: 12px;
+  min-height: 72px;
+}
+.starter-library .food-picker > button > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.starter-library .food-picker > button > span:last-child {
+  flex-shrink: 0;
+}
+.starter-library > .secondary {
+  margin-top: 12px;
+}
+dialog {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.modal-head {
+  position: sticky;
+  top: -1px;
+  background: var(--surface);
+  z-index: 2;
+  padding: 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.modal-head .icon-button {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+}
+@media (max-width: 760px) {
+  .meal-head {
+    grid-template-columns: 38px minmax(0, 1fr) 44px;
+    gap: 6px 10px;
+  }
+  .meal-icon {
+    grid-row: 1 / span 2;
+  }
+  .meal-head h3 {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .meal-nutrients {
+    grid-column: 2;
+    grid-row: 2;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .meal-head > .icon-button {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+  .meal-calories,
+  .meal-protein {
+    font-size: 13px;
+  }
+  .diary-entry {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    align-items: start;
+    padding: 14px 0;
+  }
+  .diary-entry .entry-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .diary-entry .entry-nutrients {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .diary-entry .icon-button {
+    border: 1px solid var(--line);
+  }
+  .meal-footer {
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .meal-footer .text-button {
+    min-height: 44px;
+  }
+}
+.diary-entry {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.entry-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.portion-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.portion-preview strong {
+  color: var(--green);
+}
+.dialog-actions {
+  position: sticky;
+  bottom: -1px;
+  z-index: 1;
+  background: var(--surface);
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
+@media (max-width: 760px) {
+  /* Safari auto-zooms focused inputs below 16px; retain user pinch zoom. */
+  input:not([type='checkbox']),
+  select,
+  textarea,
+  .search input {
+    font-size: 16px;
+  }
+  .diary-entry {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .entry-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+.form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.form-grid label,
+.form-grid input,
+.form-grid select {
+  min-width: 0;
+}

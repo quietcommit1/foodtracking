@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import Modal from './Modal';
 import { base, op, useStore } from '../store';
@@ -16,6 +16,8 @@ export default function RecipeForm({ recipe, onClose }: { recipe?: Recipe; onClo
   const [food, setFood] = useState('');
   const [quantity, setQuantity] = useState('100');
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
   let nutrition: ReturnType<typeof recipeNutrition> | undefined;
   try {
     nutrition = recipeNutrition(
@@ -47,6 +49,9 @@ export default function RecipeForm({ recipe, onClose }: { recipe?: Recipe; onClo
     }
   }
   async function save() {
+    if (submitting.current) return;
+    submitting.current = true;
+    setSaving(true);
     try {
       if (!name.trim() || !ingredients.length || !nutrition)
         throw Error('Add a name, ingredients and a positive yield');
@@ -89,6 +94,9 @@ export default function RecipeForm({ recipe, onClose }: { recipe?: Recipe; onClo
       onClose();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      submitting.current = false;
+      setSaving(false);
     }
   }
   return (
@@ -208,8 +216,8 @@ export default function RecipeForm({ recipe, onClose }: { recipe?: Recipe; onClo
             {error}
           </p>
         )}
-        <button type="submit" className="primary wide">
-          Save recipe & logging food
+        <button type="submit" className="primary wide" disabled={saving}>
+          {saving ? 'Saving…' : 'Save recipe & logging food'}
         </button>
       </form>
     </Modal>

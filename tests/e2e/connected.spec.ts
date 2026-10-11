@@ -211,7 +211,9 @@ test('starter search logs fractional soya chunks and saves a reusable private fo
     .getByRole('dialog')
     .getByRole('button', { name: /^Soya chunks — dry/ })
     .click();
-  await expect(page.getByText(/Adding this food confirms the nutrition/)).toBeVisible();
+  await expect(
+    page.getByText(/Starter estimate — review against your package or recipe/),
+  ).toBeVisible();
   await page.getByLabel('Quantity', { exact: true }).fill('25');
   await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
   await expect.poll(() => api.db.diary_entries.length).toBe(1);
@@ -323,4 +325,46 @@ test('real barcode photo decodes locally and explains an empty OFF nutrition rec
   await expect(page.getByLabel('Barcode (optional)', { exact: true })).toHaveValue('8906133020187');
   await expect(page.getByLabel('Protein (g)', { exact: true })).toHaveValue('');
   expect(sent).toEqual({ barcode: '8906133020187' });
+});
+
+test('mobile food choice shows weight immediately with stable input sizing and a live protein preview', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByLabel('Search saved foods').fill('soya chunks');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  const quantity = page.getByLabel('Quantity', { exact: true });
+  await expect(quantity).toBeFocused();
+  await expect(page.getByLabel('Search saved foods')).toHaveCount(0);
+  expect(
+    await quantity.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize)),
+  ).toBeGreaterThanOrEqual(16);
+  const bounds = await quantity.boundingBox();
+  expect(bounds!.y + bounds!.height).toBeLessThan(700);
+  await quantity.fill('25');
+  await expect(page.getByLabel('Nutrition for this portion')).toContainText('13 g protein');
+  await expect(page.getByLabel('Nutrition for this portion')).toContainText('86.3 kcal');
+  await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-portion-step.png' });
+  await page.getByRole('button', { name: 'Change food' }).click();
+  await expect(page.getByLabel('Search saved foods')).toBeVisible();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  await quantity.fill('25');
+  await page.getByRole('dialog').getByRole('button', { name: 'Add food', exact: true }).click();
+  await expect.poll(() => api.db.diary_entries.length).toBe(1);
+  const breakfast = page.getByRole('article', { name: 'Breakfast', exact: true });
+  await expect(breakfast.getByRole('group', { name: 'Breakfast nutrition totals' })).toContainText(
+    '13 g protein',
+  );
+  await expect(breakfast.locator('.entry-protein')).toHaveText('13 g protein');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await breakfast.screenshot({ path: '/tmp/everyday-meal-protein.png' });
 });

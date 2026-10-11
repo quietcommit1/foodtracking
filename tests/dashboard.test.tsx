@@ -44,6 +44,11 @@ it('updates all dashboard nutrients after diary changes, with independent overag
   expect(screen.getByText('55 g remaining')).toBeVisible();
   expect(screen.getByText('Over by 20 g')).toBeVisible();
   expect(screen.getByText('30 g remaining')).toBeVisible();
+  const lunch = screen.getByRole('article', { name: 'Lunch' });
+  expect(within(lunch).getByRole('group', { name: 'Lunch nutrition totals' })).toHaveTextContent(
+    '85 g protein',
+  );
+  expect(within(lunch).getByText('85 g protein')).toBeVisible();
   state.data.diary_entries.push({
     id: 'e2',
     user_id: 'u',
@@ -57,6 +62,8 @@ it('updates all dashboard nutrients after diary changes, with independent overag
   rerender(<Dashboard {...props} />);
   expect(screen.getByText('550')).toBeVisible();
   expect(screen.getByText('Incomplete · 55 g remaining')).toBeVisible();
+  expect(screen.getByText('Protein unknown')).toBeVisible();
+  expect(screen.getByText(/Protein total incomplete/)).toBeVisible();
 });
 it('caps visuals and does not invent percentages for unset targets', () => {
   const { rerender, container } = render(

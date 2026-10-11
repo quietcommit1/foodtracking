@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useDeferredValue } from 'react';
 import {
   catalog,
   catalogSourceId,
@@ -12,7 +12,9 @@ export default function StarterLibrary({
   search,
   saved,
   onChoose,
+  compact = false,
 }: {
+  compact?: boolean;
   search: string;
   saved: Food[];
   onChoose: (food: CatalogFood) => void;
@@ -39,12 +41,19 @@ export default function StarterLibrary({
     };
   }, [attempt]);
   useEffect(() => setLimit(12), [search]);
-  const matches = searchCatalog(search, [...catalog, ...reference]).filter(
-    (item) => !saved.some((f) => f.source_id === catalogSourceId(item.id)),
+  const query = useDeferredValue(search);
+  const foods = useMemo(() => [...catalog, ...reference], [reference]);
+  const savedIds = useMemo(() => new Set(saved.map((f) => f.source_id)), [saved]);
+  const matches = useMemo(
+    () => searchCatalog(query, foods).filter((item) => !savedIds.has(catalogSourceId(item.id))),
+    [query, foods, savedIds],
   );
   const shown = matches.slice(0, limit);
   return (
-    <section className="starter-library" aria-label="Reference food library">
+    <section
+      className={`starter-library${compact ? ' compact' : ''}`}
+      aria-label="Reference food library"
+    >
       <h2>Food reference library</h2>
       <p className="muted small">
         {catalog.length + reference.length} searchable foods · USDA SR28 historical reference data
@@ -64,7 +73,12 @@ export default function StarterLibrary({
           </button>
         </p>
       )}
-      <div className="food-picker">
+      {query !== search && (
+        <p role="status" className="small muted">
+          Updating results…
+        </p>
+      )}
+      <div className="food-picker" aria-busy={query !== search}>
         {shown.map((food) => (
           <button type="button" key={food.id} onClick={() => onChoose(food)}>
             <span>
