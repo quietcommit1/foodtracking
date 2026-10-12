@@ -1,13 +1,19 @@
 import { it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Scanner from '../src/components/Scanner';
+import { barcodeImage } from '../src/barcodeImage';
+vi.mock('../src/barcodeImage', () => ({
+  barcodeImage: vi
+    .fn()
+    .mockResolvedValue({ width: 100, height: 50, data: new Uint8ClampedArray(20000) }),
+}));
 vi.mock('zxing-wasm/reader', () => ({
   prepareZXingModule: vi.fn(),
   readBarcodes: vi.fn().mockResolvedValue([]),
 }));
 afterEach(() => vi.restoreAllMocks());
 beforeEach(() => {
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as any);
 });
 it('handles unsupported camera environments and manual UPC-E fallback', () => {
   Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
@@ -45,7 +51,7 @@ it('stops tracks even if camera permission finishes after unmount', async () => 
   await waitFor(() => expect(stopped).toHaveBeenCalledOnce());
 });
 
-it('photo fallback decodes locally and reports one barcode', async () => {
+it('photo fallback passes decoded pixels and reports one barcode', async () => {
   Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
   const { readBarcodes } = await import('zxing-wasm/reader');
   vi.mocked(readBarcodes).mockResolvedValueOnce([
@@ -54,14 +60,12 @@ it('photo fallback decodes locally and reports one barcode', async () => {
   const onCode = vi.fn();
   render(<Scanner onCode={onCode} onClose={vi.fn()} />);
   const file = new File([new Uint8Array([1, 2, 3])], 'barcode.jpg', { type: 'image/jpeg' });
-  Object.defineProperty(file, 'arrayBuffer', {
-    value: async () => new Uint8Array([1, 2, 3]).buffer,
-  });
-  fireEvent.change(screen.getByLabelText('Scan from a barcode photo'), {
+  fireEvent.change(screen.getByLabelText('Choose a barcode photo from gallery'), {
     target: { files: [file] },
   });
   await waitFor(() => expect(onCode).toHaveBeenCalledExactlyOnceWith('8906133020187'));
-  expect(vi.mocked(readBarcodes).mock.lastCall?.[0]).toBeInstanceOf(Uint8Array);
+  expect(vi.mocked(barcodeImage).mock.lastCall?.[0]).toBe(file);
+  expect(vi.mocked(readBarcodes).mock.lastCall?.[0]).toMatchObject({ width: 100, height: 50 });
 });
 
 it('camera enumeration failure does not block decoding or track cleanup', async () => {
@@ -99,4 +103,16 @@ it('camera enumeration failure does not block decoding or track cleanup', async 
   expect(draw).toHaveBeenCalled();
   expect(stop).toHaveBeenCalled();
   unmount();
+});
+
+it('does not request camera permission when canvas capture is unavailable', () => {
+  Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(null);
+  const getUserMedia = vi.fn();
+  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia }, configurable: true });
+  render(<Scanner onCode={vi.fn()} onClose={vi.fn()} />);
+  expect(screen.getByText(/Camera image capture is unavailable/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Start camera' })).toBeVisible();
+  expect(getUserMedia).not.toHaveBeenCalled();
+  expect(document.querySelector('.camera')).not.toBeVisible();
 });

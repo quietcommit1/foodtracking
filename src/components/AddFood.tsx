@@ -46,6 +46,9 @@ export default function AddFood({
   const [mealFactor, setMealFactor] = useState('1');
   const [saving, setSaving] = useState(false);
   const submitting = useRef(false);
+  const focusQuantity = useRef(
+    navigator.maxTouchPoints === 0 && !matchMedia('(pointer: coarse)').matches,
+  );
   const quantityInput = useRef<HTMLInputElement>(null);
   const original = useRef(JSON.stringify({ quantity, unit, meal, day, name, calories }));
   const factorPreview =
@@ -58,7 +61,11 @@ export default function AddFood({
   useEffect(() => {
     if (selected) {
       quantityInput.current?.closest('dialog')?.scrollTo({ top: 0, behavior: 'auto' });
-      quantityInput.current?.focus({ preventScroll: true });
+      if (focusQuantity.current) quantityInput.current?.focus({ preventScroll: true });
+      else
+        (quantityInput.current?.closest('.portion-box') as HTMLElement | null)?.focus({
+          preventScroll: true,
+        });
     }
   }, [selected?.id]);
   let preview;
@@ -70,7 +77,10 @@ export default function AddFood({
     /* validation stays in the form */
   }
 
-  function select(f: Food) {
+  function select(f: Food, keyboardSelection = false) {
+    focusQuantity.current =
+      keyboardSelection ||
+      (navigator.maxTouchPoints === 0 && !matchMedia('(pointer: coarse)').matches);
     setSelected(f);
     const p = profile?.last_portions[f.id];
     setQuantity(String(p?.quantity ?? (f.basis === 'serving' ? 1 : 100)));
@@ -253,8 +263,8 @@ export default function AddFood({
               search={search}
               saved={data.foods}
               entries={data.diary_entries}
-              onChoose={(food) => {
-                select(food);
+              onChoose={(food, keyboardSelection) => {
+                select(food, keyboardSelection);
                 setSaved('');
               }}
             />
@@ -282,7 +292,7 @@ export default function AddFood({
           </button>
         )}
         {saved && (
-          <div className="portion-box">
+          <div className="portion-box" tabIndex={-1}>
             <strong>{data.saved_meals.find((item) => item.id === saved)?.name}</strong>
             <p className="small muted">
               Adds the saved meal's original portions and nutrition to your diary.
@@ -345,7 +355,7 @@ export default function AddFood({
           </>
         ) : (
           (selected || entry) && (
-            <div className="portion-box">
+            <div className="portion-box" tabIndex={-1}>
               <strong>{selected?.name ?? entry?.name}</strong>
               {selected?.source_id?.startsWith('everyday-starter-v1:') && (
                 <p className="small muted">

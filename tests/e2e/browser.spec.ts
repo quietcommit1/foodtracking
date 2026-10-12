@@ -160,3 +160,28 @@ test('slow reference loading does not announce a false empty result', async ({ p
     release();
   }
 });
+
+test('mobile date arrows have independent hit areas and advance the diary', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const calendar = page.getByLabel('Select diary date');
+  await calendar.fill('2026-10-01');
+  const input = await calendar.boundingBox();
+  const container = await page.locator('.date-picker').boundingBox();
+  expect(input!.height).toBeLessThanOrEqual(container!.height);
+  expect(input!.x + input!.width).toBeLessThanOrEqual(container!.x + container!.width + 1);
+  await page.getByRole('button', { name: 'Previous day', exact: true }).click();
+  await expect(calendar).toHaveValue('2026-09-30');
+  const next = page.getByRole('button', { name: 'Next day', exact: true });
+  const bounds = await next.boundingBox();
+  expect(
+    await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('aria-label'),
+      { x: bounds!.x + bounds!.width / 2, y: bounds!.y + bounds!.height / 2 },
+    ),
+  ).toBe('Next day');
+  await next.click();
+  await expect(calendar).toHaveValue('2026-10-01');
+  await next.click();
+  await expect(calendar).toHaveValue('2026-10-02');
+});

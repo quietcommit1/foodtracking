@@ -2163,10 +2163,10 @@ dialog {
       min(100dvh, var(--dialog-visible-height, 100dvh)) - 28px - env(safe-area-inset-top, 0px) -
         env(safe-area-inset-bottom, 0px)
     );
-    top: var(--dialog-center, 50%);
+    top: calc(var(--dialog-top, 14px) + env(safe-area-inset-top, 0px));
     bottom: auto;
     margin-block: 0;
-    transform: translateY(-50%);
+    transform: none;
   }
 }
 
@@ -2184,4 +2184,47 @@ dialog {
 }
 .skip-link:focus {
   transform: translateY(0);
+}
+
+/* Keep the native Safari date field entirely inside the calendar label. */
+.date-control {
+  flex-shrink: 0;
+}
+.date-control .icon-button {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+.date-picker {
+  isolation: isolate;
+  overflow: hidden;
+  height: 44px;
+  min-width: 0;
+}
+.date-picker input {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.date-picker:focus-within {
+  outline: 3px solid #d3a458;
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .page-heading {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+}
+
+.modal-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }

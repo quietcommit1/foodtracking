@@ -341,7 +341,7 @@ test('real barcode photo decodes locally and explains an empty OFF nutrition rec
     backgroundcolor: 'FFFFFF',
   });
   await page
-    .getByLabel('Scan from a barcode photo')
+    .getByLabel('Choose a barcode photo from gallery')
     .setInputFiles({ name: 'nakpro-barcode-fixture.png', mimeType: 'image/png', buffer });
   await expect(
     page.getByText(/Product record found, but Open Food Facts has no nutrition values/),
@@ -765,4 +765,77 @@ test('a complete quick-entry workflow works using only the keyboard', async ({ p
   expect(api.db.diary_entries[0].nutrition.calories).toBe(125);
   expect(api.db.diary_entries[0].nutrition.protein).toBeNull();
   await expect(page.locator('.ring-label strong')).toHaveText('125');
+});
+
+test('gallery barcode picker allows existing photos and recovers after an unreadable image', async ({
+  page,
+}) => {
+  const api = await backend(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByRole('button', { name: 'Scan Barcode', exact: true }).click();
+  const file = page.getByLabel('Choose a barcode photo from gallery');
+  await expect(file).not.toHaveAttribute('capture', /.+/);
+  await expect(page.getByRole('button', { name: 'Start camera', exact: true })).toBeVisible();
+  await expect(page.locator('.camera')).not.toBeVisible();
+  await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-gallery-scanner.png' });
+  await file.setInputFiles({
+    name: 'unreadable.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('not an image'),
+  });
+  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
+  const svg = bwip
+    .toSVG({
+      bcid: 'ean13',
+      text: '890613302018',
+      scale: 3,
+      height: 30,
+      paddingwidth: 30,
+      paddingheight: 20,
+      backgroundcolor: 'FFFFFF',
+    })
+    .replace('<svg ', '<svg width="932" height="752" ');
+  await file.setInputFiles({
+    name: 'barcode.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(svg),
+  });
+  await expect(page.getByLabel('Barcode (optional)', { exact: true })).toHaveValue('8906133020187');
+  expect(api.external()).toBe(1);
+});
+
+test('touch food selection closes search focus without automatically opening quantity keyboard', async ({
+  page,
+}) => {
+  await backend(page);
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByRole('button', { name: 'Add Food', exact: true }).click();
+  await page.getByLabel('Search foods').fill('soya chunks');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Soya chunks — dry/ })
+    .click();
+  await expect(page.getByLabel('Quantity', { exact: true })).not.toBeFocused();
+  await expect(page.locator('dialog input:focus')).toHaveCount(0);
+  await page.getByLabel('Quantity', { exact: true }).click();
+  await expect(page.getByLabel('Quantity', { exact: true })).toBeFocused();
+  await page.getByLabel('Quantity', { exact: true }).fill('25');
+  await expect(page.getByLabel('Nutrition for this portion')).toContainText('13 g protein');
+  await page.getByRole('button', { name: 'Hide keyboard', exact: true }).click();
+  await expect(page.getByLabel('Quantity', { exact: true })).not.toBeFocused();
+  await expect(page.getByLabel('Quantity', { exact: true })).toHaveValue('25');
+  await page.getByRole('dialog').screenshot({ path: '/tmp/everyday-touch-food-entry.png' });
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 460 });
+  await expect
+    .poll(async () => {
+      const box = (await page.getByRole('dialog').boundingBox())!;
+      return box.y >= 0 && box.y + box.height <= 460;
+    })
+    .toBe(true);
 });

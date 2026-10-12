@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { readBarcodes, prepareZXingModule, type ReadInputBarcodeFormat } from 'zxing-wasm/reader';
 import wasmUrl from 'zxing-wasm/reader/zxing_reader.wasm?url';
-import { Camera, ScanLine } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import Modal from './Modal';
+import { barcodeImage } from '../barcodeImage';
 import { normalizeBarcode } from '../nutrition';
 // Bundle the decoder locally; no CDN, image uploads, or API key.
 prepareZXingModule({
@@ -43,11 +44,12 @@ export default function Scanner({
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let ownedStream: MediaStream | null = null;
-    locked.current = false;
     setHasTorch(false);
     setTorchOn(false);
     if (!active) return;
+    locked.current = false;
     if (!window.isSecureContext || !navigator.mediaDevices) {
+      setActive(false);
       setError(
         'Camera access requires HTTPS or localhost and a supported browser. Enter the barcode below.',
       );
@@ -57,6 +59,8 @@ export default function Scanner({
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       setError('Camera image capture is unavailable. Try a barcode photo or manual entry.');
+      setActive(false);
+      return;
     }
     let misses = 0;
     async function frame() {
@@ -158,12 +162,14 @@ export default function Scanner({
         }
       } catch (e) {
         ownedStream?.getTracks().forEach((t) => t.stop());
-        if (!disposed)
+        if (!disposed) {
+          setActive(false);
           setError(
             (e as Error).name === 'NotAllowedError'
               ? 'Camera permission was denied. Enable permission in browser settings, or enter the barcode.'
               : 'Could not start the camera. Try another camera or use manual entry.',
           );
+        }
       }
     }
     void start();
@@ -196,7 +202,7 @@ export default function Scanner({
     setPhotoBusy(true);
     setError('');
     try {
-      const results = await readBarcodes(new Uint8Array(await file.arrayBuffer()), {
+      const results = await readBarcodes(await barcodeImage(file), {
         formats: retailFormats,
         maxNumberOfSymbols: 1,
         tryHarder: true,
@@ -241,9 +247,9 @@ export default function Scanner({
         Use the rear camera and hold the complete barcode steady, with white space on both sides.
         Move back slightly if the bars look blurry. Images stay on this device.
       </p>
-      <div className="camera">
+      <div className="camera" hidden={!active}>
         <video ref={video} muted playsInline autoPlay />
-        <div className="scan-frame">{!active && <ScanLine size={50} />}</div>
+        <div className="scan-frame" />
         <span>EAN & UPC barcodes</span>
       </div>
       {devices.length > 1 && (
@@ -287,12 +293,15 @@ export default function Scanner({
         </button>
       )}
       <label>
-        Scan from a barcode photo
+        Choose a barcode photo from gallery
         <input
           type="file"
           accept="image/*"
-          capture="environment"
           disabled={photoBusy}
+          onClick={() => {
+            stop();
+            setActive(false);
+          }}
           onChange={(event) => {
             void scanPhoto(event.target.files?.[0]);
             event.target.value = '';
@@ -300,8 +309,9 @@ export default function Scanner({
         />
       </label>
       <p className="small muted">
-        If live scanning struggles, take a close, sharp photo of just the barcode. The photo is
-        decoded locally and never uploaded.
+        Choose an existing photo from your gallery, or take a barcode photo. If live scanning
+        struggles, take a close, sharp photo of just the barcode. The photo is decoded locally and
+        never uploaded.
       </p>
       {photoBusy && <p role="status">Reading barcode photo…</p>}
       {error && (
@@ -332,7 +342,7 @@ export default function Scanner({
             <option value="UPC-E">UPC-E (compressed 8 digits)</option>
           </select>
         </label>
-        <button className="primary" type="submit">
+        <button className="primary" type="submit" disabled={photoBusy}>
           Look up product
         </button>
       </form>

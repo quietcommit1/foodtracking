@@ -22,7 +22,7 @@ export default function FoodPicker({
   search: string;
   saved: Food[];
   entries: Entry[];
-  onChoose: (food: Food) => void;
+  onChoose: (food: Food, keyboardSelection: boolean) => void;
 }) {
   const [reference, setReference] = useState<CatalogFood[]>([]);
   const [error, setError] = useState('');
@@ -119,7 +119,9 @@ export default function FoodPicker({
           <button
             type="button"
             key={item.id}
-            onClick={() => onChoose(item.food ?? catalogDraft(item.reference!, base()))}
+            onClick={(event) =>
+              onChoose(item.food ?? catalogDraft(item.reference!, base()), event.detail === 0)
+            }
           >
             <span>
               {item.name}

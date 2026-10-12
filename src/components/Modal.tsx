@@ -1,5 +1,5 @@
 import { useEffect, useRef, useId, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { X, Keyboard } from 'lucide-react';
 const returnTargets = new WeakMap<HTMLDialogElement, HTMLElement>();
 export default function Modal({
   title,
@@ -12,6 +12,7 @@ export default function Modal({
   onClose: () => void;
   dirty?: boolean;
 }) {
+  const touchDevice = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
   const titleId = useId();
   const ref = useRef<HTMLDialogElement>(null);
   const active = document.activeElement as HTMLElement;
@@ -35,10 +36,7 @@ export default function Modal({
     const resize = () => {
       if (!viewport) return;
       ref.current?.style.setProperty('--dialog-visible-height', `${viewport.height}px`);
-      ref.current?.style.setProperty(
-        '--dialog-center',
-        `${viewport.offsetTop + viewport.height / 2}px`,
-      );
+      ref.current?.style.setProperty('--dialog-top', `${viewport.offsetTop + 14}px`);
     };
     resize();
     viewport?.addEventListener('resize', resize);
@@ -76,9 +74,30 @@ export default function Modal({
     >
       <div className="modal-head">
         <h2 id={titleId}>{title}</h2>
-        <button aria-label="Close dialog" className="icon-button" onClick={requestClose}>
-          <X size={22} />
-        </button>
+        <div className="modal-controls">
+          {touchDevice && (
+            <button
+              type="button"
+              aria-label="Hide keyboard"
+              title="Hide keyboard"
+              className="icon-button"
+              onClick={() => {
+                (document.activeElement as HTMLElement | null)?.blur();
+                ref.current?.focus({ preventScroll: true });
+              }}
+            >
+              <Keyboard size={21} />
+            </button>
+          )}
+          <button
+            autoFocus
+            aria-label="Close dialog"
+            className="icon-button"
+            onClick={requestClose}
+          >
+            <X size={22} />
+          </button>
+        </div>
       </div>
       {confirmClose && (
         <div className="notice" role="alert">
